@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
@@ -31,24 +32,80 @@ type Store struct {
 	notifications  map[string]domain.NotificationEvent
 	alerts         map[string]domain.Alert
 	sequence       int
+	repo           Repository
 }
 
 func NewStore() *Store {
-	return &Store{
-		roadmapPeriods: map[string]domain.RoadmapPeriod{},
-		roadmapItems:   map[string]domain.RoadmapItem{},
-		projects:       map[string]domain.Project{},
-		milestones:     map[string]domain.Milestone{},
-		workstreams:    map[string]domain.Workstream{},
-		workItems:      map[string]domain.LinkedWorkItem{},
-		updates:        map[string]domain.WeeklyUpdate{},
-		gitlabConfigs:  map[string]domain.GitLabConfig{},
-		syncRules:      map[string]domain.SyncRule{},
-		syncJobs:       map[string]domain.SyncJob{},
-		syncFailures:   map[string]domain.SyncFailure{},
-		notifications:  map[string]domain.NotificationEvent{},
-		alerts:         map[string]domain.Alert{},
+	store, err := NewStoreWithRepository(NewMemoryRepository())
+	if err != nil {
+		panic(err)
 	}
+	return store
+}
+
+func NewStoreWithRepository(repo Repository) (*Store, error) {
+	if repo == nil {
+		repo = NewMemoryRepository()
+	}
+	state, err := repo.Load(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	state = normalizeState(state)
+	return &Store{
+		roadmapPeriods: state.RoadmapPeriods,
+		roadmapItems:   state.RoadmapItems,
+		projects:       state.Projects,
+		milestones:     state.Milestones,
+		workstreams:    state.Workstreams,
+		workItems:      state.WorkItems,
+		updates:        state.Updates,
+		gitlabConfigs:  state.GitLabConfigs,
+		syncRules:      state.SyncRules,
+		syncJobs:       state.SyncJobs,
+		syncFailures:   state.SyncFailures,
+		notifications:  state.Notifications,
+		alerts:         state.Alerts,
+		sequence:       state.Sequence,
+		repo:           repo,
+	}, nil
+}
+
+func (s *Store) StorageBackend() string {
+	if s.repo == nil {
+		return "memory"
+	}
+	return s.repo.Name()
+}
+
+func (s *Store) Durable() bool {
+	return s.repo != nil && s.repo.Durable()
+}
+
+func (s *Store) stateLocked() State {
+	return State{
+		RoadmapPeriods: s.roadmapPeriods,
+		RoadmapItems:   s.roadmapItems,
+		Projects:       s.projects,
+		Milestones:     s.milestones,
+		Workstreams:    s.workstreams,
+		WorkItems:      s.workItems,
+		Updates:        s.updates,
+		GitLabConfigs:  s.gitlabConfigs,
+		SyncRules:      s.syncRules,
+		SyncJobs:       s.syncJobs,
+		SyncFailures:   s.syncFailures,
+		Notifications:  s.notifications,
+		Alerts:         s.alerts,
+		Sequence:       s.sequence,
+	}
+}
+
+func (s *Store) persistLocked() error {
+	if s.repo == nil {
+		return nil
+	}
+	return s.repo.Save(context.Background(), s.stateLocked())
 }
 
 func (s *Store) nextID(prefix string) string {
@@ -66,6 +123,9 @@ func (s *Store) CreateRoadmapPeriod(role domain.WorkspaceRole, period domain.Roa
 	period.ID = s.nextID("rp")
 	period.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.roadmapPeriods[period.ID] = period
+	if err := s.persistLocked(); err != nil {
+		return domain.RoadmapPeriod{}, err
+	}
 	return period, nil
 }
 
@@ -83,6 +143,9 @@ func (s *Store) UpsertRoadmapPeriod(role domain.WorkspaceRole, id string, period
 	period.AuditFields = current.AuditFields
 	period.AuditFields.UpdatedAt = time.Now().UTC()
 	s.roadmapPeriods[id] = period
+	if err := s.persistLocked(); err != nil {
+		return domain.RoadmapPeriod{}, err
+	}
 	return period, nil
 }
 
@@ -99,6 +162,9 @@ func (s *Store) ArchiveRoadmapPeriod(role domain.WorkspaceRole, id string) (doma
 	period.Status = "archived"
 	period.AuditFields.UpdatedAt = time.Now().UTC()
 	s.roadmapPeriods[id] = period
+	if err := s.persistLocked(); err != nil {
+		return domain.RoadmapPeriod{}, err
+	}
 	return period, nil
 }
 
@@ -155,6 +221,9 @@ func (s *Store) CreateRoadmapItem(role domain.WorkspaceRole, item domain.Roadmap
 	item.ID = s.nextID("ri")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.roadmapItems[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.RoadmapItem{}, err
+	}
 	return item, nil
 }
 
@@ -175,6 +244,9 @@ func (s *Store) UpsertRoadmapItem(role domain.WorkspaceRole, id string, item dom
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
 	s.roadmapItems[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.RoadmapItem{}, err
+	}
 	return item, nil
 }
 
@@ -188,6 +260,9 @@ func (s *Store) CreateProject(role domain.WorkspaceRole, item domain.Project) (d
 	item.ID = s.nextID("prj")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.projects[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Project{}, err
+	}
 	return item, nil
 }
 
@@ -225,6 +300,9 @@ func (s *Store) UpsertProject(role domain.WorkspaceRole, id string, item domain.
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
 	s.projects[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Project{}, err
+	}
 	return item, nil
 }
 
@@ -241,6 +319,9 @@ func (s *Store) CreateMilestone(role domain.WorkspaceRole, item domain.Milestone
 	item.ID = s.nextID("ms")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.milestones[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Milestone{}, err
+	}
 	return item, nil
 }
 
@@ -277,6 +358,9 @@ func (s *Store) UpsertMilestone(role domain.WorkspaceRole, id string, item domai
 	if !ok {
 		return domain.Milestone{}, ErrNotFound
 	}
+	if err := validateMilestoneTransition(current, item); err != nil {
+		return domain.Milestone{}, err
+	}
 	item.ID = id
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
@@ -285,6 +369,9 @@ func (s *Store) UpsertMilestone(role domain.WorkspaceRole, id string, item domai
 		item.CompletedDate = &now
 	}
 	s.milestones[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Milestone{}, err
+	}
 	return item, nil
 }
 
@@ -298,6 +385,9 @@ func (s *Store) CreateWorkstream(role domain.WorkspaceRole, item domain.Workstre
 	item.ID = s.nextID("ws")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.workstreams[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Workstream{}, err
+	}
 	return item, nil
 }
 
@@ -335,6 +425,9 @@ func (s *Store) UpsertWorkstream(role domain.WorkspaceRole, id string, item doma
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
 	s.workstreams[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.Workstream{}, err
+	}
 	return item, nil
 }
 
@@ -351,6 +444,9 @@ func (s *Store) CreateLinkedWorkItem(role domain.WorkspaceRole, item domain.Link
 	item.ID = s.nextID("work")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.workItems[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.LinkedWorkItem{}, err
+	}
 	return item, nil
 }
 
@@ -391,6 +487,9 @@ func (s *Store) UpsertWorkItem(role domain.WorkspaceRole, id string, item domain
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
 	s.workItems[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.LinkedWorkItem{}, err
+	}
 	return item, nil
 }
 
@@ -414,6 +513,9 @@ func (s *Store) LinkGitLabIssue(role domain.WorkspaceRole, item domain.LinkedWor
 	item.LastSyncedAt = &now
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.workItems[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.LinkedWorkItem{}, err
+	}
 	return item, nil
 }
 
@@ -431,12 +533,15 @@ func (s *Store) UnlinkGitLabIssue(role domain.WorkspaceRole, id string) error {
 		return fmt.Errorf("%w: item is not a GitLab-linked work item", ErrInvalid)
 	}
 	delete(s.workItems, id)
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Store) CreateWeeklyUpdate(role domain.WorkspaceRole, item domain.WeeklyUpdate) (domain.WeeklyUpdate, error) {
 	if !HasPermission(role, PermSubmitUpdate) {
 		return domain.WeeklyUpdate{}, ErrForbidden
+	}
+	if item.ProjectID == "" {
+		return domain.WeeklyUpdate{}, fmt.Errorf("%w: projectId is required", ErrInvalid)
 	}
 	now := time.Now().UTC()
 	s.mu.Lock()
@@ -444,6 +549,9 @@ func (s *Store) CreateWeeklyUpdate(role domain.WorkspaceRole, item domain.Weekly
 	item.ID = s.nextID("wu")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.updates[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.WeeklyUpdate{}, err
+	}
 	return item, nil
 }
 
@@ -471,6 +579,9 @@ func (s *Store) UpsertWeeklyUpdate(role domain.WorkspaceRole, id string, item do
 	if !HasPermission(role, PermSubmitUpdate) {
 		return domain.WeeklyUpdate{}, ErrForbidden
 	}
+	if item.ProjectID == "" {
+		return domain.WeeklyUpdate{}, fmt.Errorf("%w: projectId is required", ErrInvalid)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, ok := s.updates[id]
@@ -481,6 +592,9 @@ func (s *Store) UpsertWeeklyUpdate(role domain.WorkspaceRole, id string, item do
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
 	s.updates[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.WeeklyUpdate{}, err
+	}
 	return item, nil
 }
 
@@ -677,6 +791,9 @@ func (s *Store) CreateGitLabConfig(role domain.WorkspaceRole, item domain.GitLab
 	item.ID = s.nextID("glc")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.gitlabConfigs[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.GitLabConfig{}, err
+	}
 	return item, nil
 }
 
@@ -714,6 +831,9 @@ func (s *Store) UpsertGitLabConfig(role domain.WorkspaceRole, id string, item do
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
 	s.gitlabConfigs[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.GitLabConfig{}, err
+	}
 	return item, nil
 }
 
@@ -727,7 +847,7 @@ func (s *Store) DeleteGitLabConfig(role domain.WorkspaceRole, id string) error {
 		return ErrNotFound
 	}
 	delete(s.gitlabConfigs, id)
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Store) CreateSyncRule(role domain.WorkspaceRole, item domain.SyncRule) (domain.SyncRule, error) {
@@ -743,6 +863,9 @@ func (s *Store) CreateSyncRule(role domain.WorkspaceRole, item domain.SyncRule) 
 	item.ID = s.nextID("sr")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.syncRules[item.ID] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.SyncRule{}, err
+	}
 	return item, nil
 }
 
@@ -780,6 +903,9 @@ func (s *Store) UpsertSyncRule(role domain.WorkspaceRole, id string, item domain
 	item.AuditFields = current.AuditFields
 	item.AuditFields.UpdatedAt = time.Now().UTC()
 	s.syncRules[id] = item
+	if err := s.persistLocked(); err != nil {
+		return domain.SyncRule{}, err
+	}
 	return item, nil
 }
 
@@ -793,7 +919,7 @@ func (s *Store) DeleteSyncRule(role domain.WorkspaceRole, id string) error {
 		return ErrNotFound
 	}
 	delete(s.syncRules, id)
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Store) CreateSyncJob(role domain.WorkspaceRole, job domain.SyncJob) (domain.SyncJob, error) {
@@ -808,6 +934,9 @@ func (s *Store) CreateSyncJob(role domain.WorkspaceRole, job domain.SyncJob) (do
 	job.StartedAt = &now
 	job.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.syncJobs[job.ID] = job
+	if err := s.persistLocked(); err != nil {
+		return domain.SyncJob{}, err
+	}
 	return job, nil
 }
 
@@ -829,7 +958,7 @@ func (s *Store) CompleteSyncJob(id string, itemsSynced, itemsFailed int, errMsg 
 	job.ErrorMessage = errMsg
 	job.AuditFields.UpdatedAt = now
 	s.syncJobs[id] = job
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Store) ListSyncJobs() []domain.SyncJob {
@@ -850,6 +979,7 @@ func (s *Store) RecordSyncFailure(failure domain.SyncFailure) domain.SyncFailure
 	failure.LastAttempt = now
 	failure.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.syncFailures[failure.ID] = failure
+	_ = s.persistLocked()
 	return failure
 }
 
@@ -873,7 +1003,7 @@ func (s *Store) ResolveSyncFailure(id string) error {
 	failure.Resolved = true
 	failure.AuditFields.UpdatedAt = time.Now().UTC()
 	s.syncFailures[id] = failure
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Store) GenerateAlerts() []domain.Alert {
@@ -885,21 +1015,21 @@ func (s *Store) GenerateAlerts() []domain.Alert {
 	for _, ms := range s.milestones {
 		if ms.Status == domain.MilestoneBlocked && ms.CompletedDate == nil {
 			alerts = append(alerts, domain.Alert{
-				ID:         s.nextID("alert"),
-				AlertType:  "blocked_milestone",
-				TargetID:   ms.ID,
-				TargetType: "milestone",
-				Message:    fmt.Sprintf("Milestone %q is blocked", ms.Title),
+				ID:          s.nextID("alert"),
+				AlertType:   "blocked_milestone",
+				TargetID:    ms.ID,
+				TargetType:  "milestone",
+				Message:     fmt.Sprintf("Milestone %q is blocked", ms.Title),
 				AuditFields: domain.AuditFields{CreatedAt: now, UpdatedAt: now},
 			})
 		}
 		if ms.PlannedDate != nil && ms.CompletedDate == nil && ms.PlannedDate.Before(now) && ms.Status != domain.MilestoneCompleted && ms.Status != domain.MilestoneCancelled {
 			alerts = append(alerts, domain.Alert{
-				ID:         s.nextID("alert"),
-				AlertType:  "overdue_milestone",
-				TargetID:   ms.ID,
-				TargetType: "milestone",
-				Message:    fmt.Sprintf("Milestone %q is overdue (planned: %s)", ms.Title, ms.PlannedDate.Format("2006-01-02")),
+				ID:          s.nextID("alert"),
+				AlertType:   "overdue_milestone",
+				TargetID:    ms.ID,
+				TargetType:  "milestone",
+				Message:     fmt.Sprintf("Milestone %q is overdue (planned: %s)", ms.Title, ms.PlannedDate.Format("2006-01-02")),
 				AuditFields: domain.AuditFields{CreatedAt: now, UpdatedAt: now},
 			})
 		}
@@ -907,11 +1037,11 @@ func (s *Store) GenerateAlerts() []domain.Alert {
 			daysUntil := ms.PlannedDate.Sub(now).Hours() / 24
 			if daysUntil > 0 && daysUntil <= 7 {
 				alerts = append(alerts, domain.Alert{
-					ID:         s.nextID("alert"),
-					AlertType:  "upcoming_milestone",
-					TargetID:   ms.ID,
-					TargetType: "milestone",
-					Message:    fmt.Sprintf("Milestone %q is due in %.0f days", ms.Title, daysUntil),
+					ID:          s.nextID("alert"),
+					AlertType:   "upcoming_milestone",
+					TargetID:    ms.ID,
+					TargetType:  "milestone",
+					Message:     fmt.Sprintf("Milestone %q is due in %.0f days", ms.Title, daysUntil),
 					AuditFields: domain.AuditFields{CreatedAt: now, UpdatedAt: now},
 				})
 			}
@@ -929,11 +1059,11 @@ func (s *Store) GenerateAlerts() []domain.Alert {
 		}
 		if !hasRecentUpdate && proj.Status == "active" {
 			alerts = append(alerts, domain.Alert{
-				ID:         s.nextID("alert"),
-				AlertType:  "missing_weekly_update",
-				TargetID:   proj.ID,
-				TargetType: "project",
-				Message:    fmt.Sprintf("Project %q has no weekly update in the last 7 days", proj.Name),
+				ID:          s.nextID("alert"),
+				AlertType:   "missing_weekly_update",
+				TargetID:    proj.ID,
+				TargetType:  "project",
+				Message:     fmt.Sprintf("Project %q has no weekly update in the last 7 days", proj.Name),
 				AuditFields: domain.AuditFields{CreatedAt: now, UpdatedAt: now},
 			})
 		}
@@ -943,11 +1073,11 @@ func (s *Store) GenerateAlerts() []domain.Alert {
 	for _, wi := range s.workItems {
 		if wi.SourceType == domain.SourceGitLabIssue && wi.LastSyncedAt != nil && wi.LastSyncedAt.Before(staleThreshold) {
 			alerts = append(alerts, domain.Alert{
-				ID:         s.nextID("alert"),
-				AlertType:  "stale_gitlab_work",
-				TargetID:   wi.ID,
-				TargetType: "work_item",
-				Message:    fmt.Sprintf("GitLab-linked work item %q has not been synced in 3+ days", wi.Title),
+				ID:          s.nextID("alert"),
+				AlertType:   "stale_gitlab_work",
+				TargetID:    wi.ID,
+				TargetType:  "work_item",
+				Message:     fmt.Sprintf("GitLab-linked work item %q has not been synced in 3+ days", wi.Title),
 				AuditFields: domain.AuditFields{CreatedAt: now, UpdatedAt: now},
 			})
 		}
@@ -956,6 +1086,7 @@ func (s *Store) GenerateAlerts() []domain.Alert {
 	for _, alert := range alerts {
 		s.alerts[alert.ID] = alert
 	}
+	_ = s.persistLocked()
 	return alerts
 }
 
@@ -982,7 +1113,7 @@ func (s *Store) DismissAlert(role domain.WorkspaceRole, id string) error {
 	alert.Dismissed = true
 	alert.AuditFields.UpdatedAt = time.Now().UTC()
 	s.alerts[id] = alert
-	return nil
+	return s.persistLocked()
 }
 
 func (s *Store) SaveNotification(event domain.NotificationEvent) domain.NotificationEvent {
@@ -990,6 +1121,7 @@ func (s *Store) SaveNotification(event domain.NotificationEvent) domain.Notifica
 	defer s.mu.Unlock()
 	event.ID = s.nextID("notif")
 	s.notifications[event.ID] = event
+	_ = s.persistLocked()
 	return event
 }
 
@@ -1074,10 +1206,10 @@ func (s *Store) OperationalStatus() domain.OperationalStatus {
 	proj.WorkItemCount = len(s.workItems)
 
 	return domain.OperationalStatus{
-		SyncStatus:        sync,
-		ProjectionStatus:  proj,
+		SyncStatus:         sync,
+		ProjectionStatus:   proj,
 		NotificationStatus: notif,
-		AlertSummary:      alerts,
+		AlertSummary:       alerts,
 	}
 }
 
@@ -1099,14 +1231,18 @@ func (s *Store) RunSyncForRule(role domain.WorkspaceRole, ruleID string) (domain
 
 	now := time.Now().UTC()
 	job := domain.SyncJob{
-		RuleID:     ruleID,
-		Status:     "running",
-		StartedAt:  &now,
+		RuleID:      ruleID,
+		Status:      "running",
+		StartedAt:   &now,
 		AuditFields: domain.AuditFields{CreatedAt: now, UpdatedAt: now},
 	}
 	s.mu.Lock()
 	job.ID = s.nextID("sj")
 	s.syncJobs[job.ID] = job
+	if err := s.persistLocked(); err != nil {
+		s.mu.Unlock()
+		return domain.SyncJob{}, err
+	}
 	s.mu.Unlock()
 
 	synced, failed := s.executeSync(rule)
@@ -1123,6 +1259,10 @@ func (s *Store) RunSyncForRule(role domain.WorkspaceRole, ruleID string) (domain
 	}
 	job.AuditFields.UpdatedAt = now
 	s.syncJobs[job.ID] = job
+	if err := s.persistLocked(); err != nil {
+		s.mu.Unlock()
+		return domain.SyncJob{}, err
+	}
 	s.mu.Unlock()
 
 	return job, nil
@@ -1160,6 +1300,7 @@ func (s *Store) executeSync(rule domain.SyncRule) (synced, failed int) {
 		s.workItems[item.ID] = item
 		synced++
 	}
+	_ = s.persistLocked()
 	return synced, failed
 }
 
@@ -1168,6 +1309,30 @@ func validateMilestone(item domain.Milestone) error {
 		return fmt.Errorf("%w: completion criteria are required before activation", ErrInvalid)
 	}
 	return nil
+}
+
+func validateMilestoneTransition(current, next domain.Milestone) error {
+	if current.Status == next.Status {
+		return nil
+	}
+	switch current.Status {
+	case domain.MilestoneNotStarted:
+		if next.Status == domain.MilestoneActive {
+			return nil
+		}
+	case domain.MilestoneActive:
+		switch next.Status {
+		case domain.MilestoneBlocked, domain.MilestoneCompleted, domain.MilestoneCancelled:
+			return nil
+		}
+	case domain.MilestoneBlocked:
+		if next.Status == domain.MilestoneActive {
+			return nil
+		}
+	case domain.MilestoneCompleted, domain.MilestoneCancelled:
+		return fmt.Errorf("%w: milestone status %q is terminal", ErrInvalid, current.Status)
+	}
+	return fmt.Errorf("%w: invalid milestone status transition from %q to %q", ErrInvalid, current.Status, next.Status)
 }
 
 func validateWorkItem(item domain.LinkedWorkItem) error {

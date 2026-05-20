@@ -1,6 +1,17 @@
 CREATE DATABASE IF NOT EXISTS goal_manager CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE goal_manager;
 
+CREATE TABLE IF NOT EXISTS app_state (
+  state_key VARCHAR(64) PRIMARY KEY,
+  payload JSON NOT NULL,
+  updated_at DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS id_sequences (
+  prefix VARCHAR(32) PRIMARY KEY,
+  last_val BIGINT NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS roadmap_periods (
   id VARCHAR(64) PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
@@ -86,12 +97,12 @@ CREATE TABLE IF NOT EXISTS workstreams (
 CREATE TABLE IF NOT EXISTS linked_work_items (
   id VARCHAR(64) PRIMARY KEY,
   source_type VARCHAR(32) NOT NULL,
-  source_id VARCHAR(128) NOT NULL,
-  source_url VARCHAR(255) NOT NULL,
+  source_id VARCHAR(128) NULL,
+  source_url VARCHAR(255) NULL,
   title VARCHAR(255) NOT NULL,
-  project_id VARCHAR(64) NOT NULL,
-  milestone_id VARCHAR(64) NOT NULL,
-  workstream_id VARCHAR(64) NOT NULL,
+  project_id VARCHAR(64) NULL,
+  milestone_id VARCHAR(64) NULL,
+  workstream_id VARCHAR(64) NULL,
   owner VARCHAR(128) NOT NULL,
   status VARCHAR(32) NOT NULL,
   estimate VARCHAR(64) NOT NULL,

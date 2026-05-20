@@ -40,6 +40,19 @@ func createMilestoneWithRole(s *Server, role domain.WorkspaceRole, projID string
 	return ms
 }
 
+func updateMilestoneWithRole(t *testing.T, s *Server, role domain.WorkspaceRole, ms domain.Milestone) (domain.Milestone, int) {
+	t.Helper()
+	body, _ := json.Marshal(ms)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/milestones?id="+ms.ID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(role))
+	resp := httptest.NewRecorder()
+	s.Handler().ServeHTTP(resp, req)
+	var updated domain.Milestone
+	json.Unmarshal(resp.Body.Bytes(), &updated)
+	return updated, resp.Code
+}
+
 func TestHealthEndpoint(t *testing.T) {
 	server := NewServer(LoadConfig())
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
@@ -180,6 +193,68 @@ func TestProjectFilterAndDashboardSummary(t *testing.T) {
 	}
 }
 
+func TestMilestoneRiskAndWorkItemGitLabFilters(t *testing.T) {
+	server := NewServer(LoadConfig())
+	proj := createProjectWithRole(server, domain.RoleProjectOwner)
+
+	highRiskBody, _ := json.Marshal(domain.Milestone{ProjectID: proj.ID, Title: "High Risk", Status: domain.MilestoneNotStarted, CompletionCriteria: "Done", Owner: "owner", RiskLevel: "high"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/milestones", bytes.NewReader(highRiskBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create high risk milestone: %d %s", resp.Code, resp.Body.String())
+	}
+
+	lowRiskBody, _ := json.Marshal(domain.Milestone{ProjectID: proj.ID, Title: "Low Risk", Status: domain.MilestoneNotStarted, CompletionCriteria: "Done", Owner: "owner", RiskLevel: "low"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/milestones", bytes.NewReader(lowRiskBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create low risk milestone: %d %s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/milestones?risk=high", nil)
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	var milestones []domain.Milestone
+	json.Unmarshal(resp.Body.Bytes(), &milestones)
+	if resp.Code != http.StatusOK || len(milestones) != 1 || milestones[0].RiskLevel != "high" {
+		t.Fatalf("expected one high-risk milestone, code=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	linkBody, _ := json.Marshal(domain.LinkedWorkItem{SourceType: domain.SourceGitLabIssue, SourceID: "101", SourceURL: "https://gitlab.example/group/repo/-/issues/101", Title: "Issue", ProjectID: proj.ID, Owner: "dev", Status: "opened", GitLabLabels: []string{"milestone::x"}, GitLabAssignee: "dev"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/gitlab-link", bytes.NewReader(linkBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("link gitlab issue: %d %s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/work-items?sourceType=gitlab_issue&gitlabContext=group/repo", nil)
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	var workItems []domain.LinkedWorkItem
+	json.Unmarshal(resp.Body.Bytes(), &workItems)
+	if resp.Code != http.StatusOK || len(workItems) != 1 || workItems[0].SourceID != "101" {
+		t.Fatalf("expected one gitlab work item, code=%d body=%s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/work-items?sourceType=gitlab_issue&gitlabContext=no-match", nil)
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	workItems = nil
+	json.Unmarshal(resp.Body.Bytes(), &workItems)
+	if resp.Code != http.StatusOK || len(workItems) != 0 {
+		t.Fatalf("expected no gitlab work items, code=%d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
 // --- RBAC Tests ---
 
 func TestViewerCannotCreateProject(t *testing.T) {
@@ -254,6 +329,37 @@ func TestContributorCanCreateWorkItemButNotProject(t *testing.T) {
 	server.Handler().ServeHTTP(wiResp, wiReq)
 	if wiResp.Code != http.StatusCreated {
 		t.Fatalf("expected 201 for work item creation, got %d", wiResp.Code)
+	}
+}
+
+func TestWeeklyUpdateRequiresProjectContextAndKeepsMilestone(t *testing.T) {
+	server := NewServer(LoadConfig())
+	proj := createProjectWithRole(server, domain.RoleProjectOwner)
+	ms := createMilestoneWithRole(server, domain.RoleProjectOwner, proj.ID)
+
+	missingProjectBody, _ := json.Marshal(domain.WeeklyUpdate{Author: "owner", Week: "2026-W21", Summary: "summary"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/weekly-updates", bytes.NewReader(missingProjectBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing projectId, got %d", resp.Code)
+	}
+
+	body, _ := json.Marshal(domain.WeeklyUpdate{ProjectID: proj.ID, MilestoneID: ms.ID, Author: "owner", Week: "2026-W21", Summary: "summary"})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/weekly-updates", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for weekly update, got %d body: %s", resp.Code, resp.Body.String())
+	}
+	var update domain.WeeklyUpdate
+	json.Unmarshal(resp.Body.Bytes(), &update)
+	if update.ProjectID != proj.ID || update.MilestoneID != ms.ID {
+		t.Fatalf("expected project and milestone context to be preserved: %+v", update)
 	}
 }
 
@@ -708,21 +814,106 @@ func TestMilestoneCompletionRecordsDate(t *testing.T) {
 	proj := createProjectWithRole(server, domain.RoleProjectOwner)
 	ms := createMilestoneWithRole(server, domain.RoleProjectOwner, proj.ID)
 
-	ms.Status = domain.MilestoneCompleted
-	updateBody, _ := json.Marshal(ms)
-	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/milestones?id="+ms.ID, bytes.NewReader(updateBody))
-	updateReq.Header.Set("Content-Type", "application/json")
-	updateReq.Header.Set("X-Role", string(domain.RoleProjectOwner))
-	updateResp := httptest.NewRecorder()
-	server.Handler().ServeHTTP(updateResp, updateReq)
-
-	if updateResp.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", updateResp.Code)
+	ms.Status = domain.MilestoneActive
+	active, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, ms)
+	if code != http.StatusOK {
+		t.Fatalf("expected active transition 200, got %d", code)
 	}
 
-	var updated domain.Milestone
-	json.Unmarshal(updateResp.Body.Bytes(), &updated)
+	active.Status = domain.MilestoneCompleted
+	updated, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, active)
+	if code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", code)
+	}
+
 	if updated.CompletedDate == nil {
 		t.Fatal("expected completedDate to be set")
+	}
+}
+
+func TestMilestoneTransitionStateMachine(t *testing.T) {
+	server := NewServer(LoadConfig())
+	proj := createProjectWithRole(server, domain.RoleProjectOwner)
+	ms := createMilestoneWithRole(server, domain.RoleProjectOwner, proj.ID)
+
+	ms.Status = domain.MilestoneCompleted
+	if _, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, ms); code != http.StatusBadRequest {
+		t.Fatalf("expected not_started->completed to be rejected, got %d", code)
+	}
+
+	ms.Status = domain.MilestoneActive
+	active, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, ms)
+	if code != http.StatusOK {
+		t.Fatalf("expected not_started->active 200, got %d", code)
+	}
+
+	active.Status = domain.MilestoneBlocked
+	blocked, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, active)
+	if code != http.StatusOK {
+		t.Fatalf("expected active->blocked 200, got %d", code)
+	}
+
+	blocked.Status = domain.MilestoneActive
+	active, code = updateMilestoneWithRole(t, server, domain.RoleProjectOwner, blocked)
+	if code != http.StatusOK {
+		t.Fatalf("expected blocked->active 200, got %d", code)
+	}
+
+	active.Status = domain.MilestoneCancelled
+	cancelled, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, active)
+	if code != http.StatusOK {
+		t.Fatalf("expected active->cancelled 200, got %d", code)
+	}
+
+	cancelled.Status = domain.MilestoneActive
+	if _, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, cancelled); code != http.StatusBadRequest {
+		t.Fatalf("expected cancelled->active to be rejected, got %d", code)
+	}
+}
+
+func TestCompletedMilestoneCannotReenterActiveState(t *testing.T) {
+	server := NewServer(LoadConfig())
+	proj := createProjectWithRole(server, domain.RoleProjectOwner)
+	ms := createMilestoneWithRole(server, domain.RoleProjectOwner, proj.ID)
+
+	ms.Status = domain.MilestoneActive
+	active, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, ms)
+	if code != http.StatusOK {
+		t.Fatalf("expected active transition 200, got %d", code)
+	}
+
+	active.Status = domain.MilestoneCompleted
+	completed, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, active)
+	if code != http.StatusOK {
+		t.Fatalf("expected completed transition 200, got %d", code)
+	}
+
+	completed.Status = domain.MilestoneActive
+	if _, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, completed); code != http.StatusBadRequest {
+		t.Fatalf("expected completed->active to be rejected, got %d", code)
+	}
+}
+
+func TestMilestoneHealthAndProgressUpdateDoesNotChangeStatus(t *testing.T) {
+	server := NewServer(LoadConfig())
+	proj := createProjectWithRole(server, domain.RoleProjectOwner)
+	ms := createMilestoneWithRole(server, domain.RoleProjectOwner, proj.ID)
+
+	ms.Status = domain.MilestoneCompleted
+	ms.HealthStatus = domain.HealthAtRisk
+	ms.ProgressPercent = 45
+	if _, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, ms); code != http.StatusBadRequest {
+		t.Fatalf("expected not_started->completed to be rejected before health/progress assertion, got %d", code)
+	}
+
+	ms.Status = domain.MilestoneNotStarted
+	ms.HealthStatus = domain.HealthAtRisk
+	ms.ProgressPercent = 45
+	updated, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, ms)
+	if code != http.StatusOK {
+		t.Fatalf("expected same-status update 200, got %d", code)
+	}
+	if updated.Status != domain.MilestoneNotStarted || updated.HealthStatus != domain.HealthAtRisk || updated.ProgressPercent != 45 {
+		t.Fatalf("health/progress update changed unexpected fields: %+v", updated)
 	}
 }

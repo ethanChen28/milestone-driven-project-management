@@ -1,28 +1,39 @@
 <script setup lang="ts">
-import { inject, onMounted, ref, type Ref } from "vue";
+import { computed, inject, onMounted, ref, type Ref } from "vue";
 import { useRouter } from "vue-router";
 import type { Locale } from "../i18n";
-import { label, apiFetch, type Project } from "../api";
+import { label, apiFetch, can, type Project, type WorkspaceRole } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
+const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
 const router = useRouter();
 const projects = ref<Project[]>([]);
 const showForm = ref(false);
+const canCreate = computed(() => can(currentRole.value, "manageProject"));
+const filters = ref({ owner: "", status: "", health: "", q: "" });
 const form = ref({ name: "", objective: "", owner: "", status: "active", healthStatus: "on_track", priority: "P1", projectType: "product", targetStartDate: "", targetEndDate: "" });
 
+function query() {
+  const params = new URLSearchParams();
+  Object.entries(filters.value).forEach(([key, value]) => { if (value) params.set(key, value); });
+  return params.toString() ? `?${params.toString()}` : "";
+}
+
 async function load() {
-  try { projects.value = await apiFetch<Project[]>("/projects"); } catch { projects.value = []; }
+  try { projects.value = await apiFetch<Project[]>(`/projects${query()}`); } catch { projects.value = []; }
 }
 
 onMounted(load);
 
 async function create() {
+  if (!canCreate.value) return;
   await apiFetch("/projects", { method: "POST", body: JSON.stringify(form.value) });
   showForm.value = false;
   form.value = { name: "", objective: "", owner: "", status: "active", healthStatus: "on_track", priority: "P1", projectType: "product", targetStartDate: "", targetEndDate: "" };
   await load();
 }
 
+function clearFilters() { filters.value = { owner: "", status: "", health: "", q: "" }; load(); }
 function go(id: string) { router.push({ name: "project-detail", params: { id } }); }
 </script>
 
@@ -30,22 +41,24 @@ function go(id: string) { router.push({ name: "project-detail", params: { id } }
   <div class="page">
     <div class="header">
       <h1>{{ label("projects", locale) }}</h1>
-      <button class="btn primary" @click="showForm = !showForm">{{ label("createProject", locale) }}</button>
+      <button v-if="canCreate" class="btn primary" @click="showForm = !showForm">{{ label("createProject", locale) }}</button>
+      <span v-else class="empty">{{ label('noPermission', locale) }}</span>
+    </div>
+    <div class="filters">
+      <strong>{{ label('filters', locale) }}</strong>
+      <input v-model="filters.q" placeholder="q" />
+      <input v-model="filters.owner" :placeholder="label('owner', locale)" />
+      <select v-model="filters.status"><option value="">{{ label('status', locale) }}</option><option value="active">active</option><option value="done">done</option><option value="archived">archived</option></select>
+      <select v-model="filters.health"><option value="">{{ label('health', locale) }}</option><option value="on_track">on_track</option><option value="at_risk">at_risk</option><option value="off_track">off_track</option></select>
+      <button class="btn" @click="load">{{ label('filters', locale) }}</button><button class="btn" @click="clearFilters">{{ label('clearFilters', locale) }}</button>
     </div>
     <form v-if="showForm" class="form" @submit.prevent="create">
       <input v-model="form.name" :placeholder="label('name', locale)" required />
       <input v-model="form.objective" :placeholder="label('objective', locale)" />
       <input v-model="form.owner" :placeholder="label('owner', locale)" required />
-      <select v-model="form.healthStatus">
-        <option value="on_track">on_track</option><option value="at_risk">at_risk</option><option value="off_track">off_track</option>
-      </select>
-      <select v-model="form.priority">
-        <option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option>
-      </select>
-      <div class="row">
-        <button class="btn primary" type="submit">{{ label("save", locale) }}</button>
-        <button class="btn" type="button" @click="showForm = false">{{ label("cancel", locale) }}</button>
-      </div>
+      <select v-model="form.healthStatus"><option value="on_track">on_track</option><option value="at_risk">at_risk</option><option value="off_track">off_track</option></select>
+      <select v-model="form.priority"><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></select>
+      <div class="row"><button class="btn primary" type="submit">{{ label("save", locale) }}</button><button class="btn" type="button" @click="showForm = false">{{ label("cancel", locale) }}</button></div>
     </form>
     <table v-if="projects.length">
       <thead><tr><th>{{ label('name', locale) }}</th><th>{{ label('owner', locale) }}</th><th>{{ label('status', locale) }}</th><th>{{ label('health', locale) }}</th><th>{{ label('priority', locale) }}</th></tr></thead>
@@ -64,6 +77,8 @@ function go(id: string) { router.push({ name: "project-detail", params: { id } }
 .page { max-width: 960px; }
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 h1 { margin: 0; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #fff; padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.filters input, .filters select { padding: 8px 10px; border: 1px solid #d1d9d6; border-radius: 8px; }
 .form { display: flex; flex-direction: column; gap: 10px; max-width: 480px; margin-bottom: 20px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .form input, .form select { padding: 10px 12px; border: 1px solid #d1d9d6; border-radius: 8px; font-size: .92rem; }
 .row { display: flex; gap: 10px; }

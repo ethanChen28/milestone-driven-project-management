@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { inject, onMounted, ref, type Ref } from "vue";
+import { computed, inject, onMounted, ref, type Ref } from "vue";
 import type { Locale } from "../i18n";
 import { label, apiFetch, type RoadmapOverviewItem } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
 const items = ref<RoadmapOverviewItem[]>([]);
+const filters = ref({ owner: "", status: "" });
+const filteredItems = computed(() => items.value.filter((item) => (!filters.value.status || item.period.status === filters.value.status) && (!filters.value.owner || item.period.owner === filters.value.owner)));
+function clearFilters() { filters.value = { owner: "", status: "" }; }
 
 onMounted(async () => {
   try { items.value = await apiFetch<RoadmapOverviewItem[]>("/dashboard/roadmap"); } catch { items.value = []; }
@@ -14,8 +17,9 @@ onMounted(async () => {
 <template>
   <div class="page">
     <h1>{{ label("roadmap", locale) }}</h1>
-    <p v-if="!items.length" class="empty">{{ label("noData", locale) }}</p>
-    <div v-for="item in items" :key="item.period.id" class="period-card">
+    <div class="filters"><strong>{{ label('filters', locale) }}</strong><input v-model="filters.owner" :placeholder="label('owner', locale)" /><select v-model="filters.status"><option value="">{{ label('status', locale) }}</option><option value="active">active</option><option value="archived">archived</option></select><button class="btn" @click="clearFilters">{{ label('clearFilters', locale) }}</button></div>
+    <p v-if="!filteredItems.length" class="empty">{{ label("noData", locale) }}</p>
+    <div v-for="item in filteredItems" :key="item.period.id" class="period-card">
       <div class="period-header">
         <h2>{{ item.period.title }}</h2>
         <span class="badge" :class="item.period.status">{{ item.period.status }}</span>
@@ -42,6 +46,9 @@ onMounted(async () => {
 <style scoped>
 .page { max-width: 960px; }
 h1 { margin: 0 0 20px; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #fff; padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.filters input, .filters select { padding: 8px 10px; border: 1px solid #d1d9d6; border-radius: 8px; }
+.btn { padding: 8px 18px; border-radius: 8px; border: 1px solid #d1d9d6; background: #fff; cursor: pointer; }
 .period-card { background: #fff; border-radius: 14px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
 .period-header { display: flex; justify-content: space-between; align-items: center; }
 h2 { margin: 0; font-size: 1.2rem; }

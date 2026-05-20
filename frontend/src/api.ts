@@ -1,11 +1,44 @@
 import type { Locale } from "./i18n";
 
 const API_BASE = "/api/v1";
+export const ROLE_STORAGE_KEY = "goal-manager.workspaceRole";
+
+export const workspaceRoles = ["admin", "portfolio_manager", "project_owner", "contributor", "viewer"] as const;
+export type WorkspaceRole = (typeof workspaceRoles)[number];
+
+const rolePermissions: Record<WorkspaceRole, string[]> = {
+  admin: ["manageIntegration", "manageRoadmap", "manageProject", "manageMilestone", "manageWorkItem", "submitUpdate"],
+  portfolio_manager: ["manageRoadmap", "manageProject", "manageMilestone", "manageWorkItem", "submitUpdate"],
+  project_owner: ["manageProject", "manageMilestone", "manageWorkItem", "submitUpdate"],
+  contributor: ["manageWorkItem", "submitUpdate"],
+  viewer: [],
+};
+
+export function isWorkspaceRole(value: string | null): value is WorkspaceRole {
+  return !!value && workspaceRoles.includes(value as WorkspaceRole);
+}
+
+export function getCurrentRole(): WorkspaceRole {
+  if (typeof window === "undefined") return "contributor";
+  const stored = window.localStorage.getItem(ROLE_STORAGE_KEY);
+  return isWorkspaceRole(stored) ? stored : "contributor";
+}
+
+export function setCurrentRole(role: WorkspaceRole) {
+  if (typeof window !== "undefined") window.localStorage.setItem(ROLE_STORAGE_KEY, role);
+}
+
+export function can(role: WorkspaceRole, permission: string): boolean {
+  return rolePermissions[role].includes(permission);
+}
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  headers.set("X-Role", getCurrentRole());
   const resp = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json", "X-Role": "admin" },
     ...init,
+    headers,
   });
   if (!resp.ok) {
     const body = await resp.text();
@@ -45,8 +78,46 @@ export interface Milestone {
   owner: string;
   completionCriteria: string;
   plannedDate?: string;
+  forecastDate?: string;
   completedDate?: string;
   progressPercent: number;
+  riskLevel: string;
+  dependencySummary: string;
+}
+
+export interface LinkedWorkItem {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  sourceUrl: string;
+  title: string;
+  projectId: string;
+  milestoneId: string;
+  workstreamId: string;
+  owner: string;
+  status: string;
+  estimate: string;
+  dueDate?: string;
+  blocked: boolean;
+  gitLabLabels?: string[];
+  gitlabLabels?: string[];
+  gitLabAssignee?: string;
+  gitlabAssignee?: string;
+  gitLabState?: string;
+  gitlabState?: string;
+  lastSyncedAt?: string;
+}
+
+export function gitlabLabels(item: LinkedWorkItem): string[] {
+  return item.gitlabLabels ?? item.gitLabLabels ?? [];
+}
+
+export function gitlabAssignee(item: LinkedWorkItem): string {
+  return item.gitlabAssignee ?? item.gitLabAssignee ?? "";
+}
+
+export function gitlabState(item: LinkedWorkItem): string {
+  return item.gitlabState ?? item.gitLabState ?? "";
 }
 
 export interface WeeklyUpdate {
@@ -91,13 +162,13 @@ export interface WeeklyReviewView {
 export interface ProjectDetailView {
   project: Project;
   milestones: Milestone[];
-  workItems: unknown[];
+  workItems: LinkedWorkItem[];
   updates: WeeklyUpdate[];
 }
 
 export interface MilestoneDetailView {
   milestone: Milestone;
-  workItems: unknown[];
+  workItems: LinkedWorkItem[];
   updates: WeeklyUpdate[];
 }
 
@@ -126,8 +197,11 @@ export function label(key: string, locale: Locale): string {
     title: { "zh-CN": "标题", "en-US": "Title" },
     criteria: { "zh-CN": "完成标准", "en-US": "Completion Criteria" },
     plannedDate: { "zh-CN": "计划日期", "en-US": "Planned Date" },
+    forecastDate: { "zh-CN": "预测日期", "en-US": "Forecast Date" },
+    dependencySummary: { "zh-CN": "依赖说明", "en-US": "Dependency Summary" },
     summary: { "zh-CN": "摘要", "en-US": "Summary" },
     progress: { "zh-CN": "进展", "en-US": "Progress" },
+    progressPercent: { "zh-CN": "进度百分比", "en-US": "Progress Percent" },
     risk: { "zh-CN": "风险", "en-US": "Risk" },
     blockers: { "zh-CN": "阻塞项", "en-US": "Blockers" },
     decisionsNeeded: { "zh-CN": "需要决策", "en-US": "Decisions Needed" },
@@ -144,6 +218,18 @@ export function label(key: string, locale: Locale): string {
     endDate: { "zh-CN": "结束日期", "en-US": "End Date" },
     edit: { "zh-CN": "编辑", "en-US": "Edit" },
     period: { "zh-CN": "周期", "en-US": "Period" },
+    roleTool: { "zh-CN": "MVP 角色调试", "en-US": "MVP Role Debug" },
+    roleWarning: { "zh-CN": "非生产登录", "en-US": "Not production auth" },
+    noPermission: { "zh-CN": "当前角色无权限", "en-US": "Current role cannot edit" },
+    filters: { "zh-CN": "筛选", "en-US": "Filters" },
+    clearFilters: { "zh-CN": "清除筛选", "en-US": "Clear Filters" },
+    workItems: { "zh-CN": "工作项", "en-US": "Work Items" },
+    source: { "zh-CN": "来源", "en-US": "Source" },
+    assignee: { "zh-CN": "处理人", "en-US": "Assignee" },
+    labels: { "zh-CN": "标签", "en-US": "Labels" },
+    lastSynced: { "zh-CN": "最近同步", "en-US": "Last Synced" },
+    openIssue: { "zh-CN": "打开 Issue", "en-US": "Open Issue" },
+    gitlabContext: { "zh-CN": "GitLab 上下文", "en-US": "GitLab Context" },
   };
   return labels[key]?.[locale] ?? key;
 }

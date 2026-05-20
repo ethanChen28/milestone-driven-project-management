@@ -25,6 +25,7 @@ services:
       MYSQL_DSN: goal:goal@tcp(mysql:3306)/goal_manager?parseTime=true
       REDIS_ADDR: redis:6379
       APP_DEFAULT_LOCALE: zh-CN
+      STORAGE_BACKEND: mysql
     depends_on:
       - mysql
       - redis

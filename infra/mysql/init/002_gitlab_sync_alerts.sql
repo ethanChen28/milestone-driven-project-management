@@ -1,10 +1,6 @@
 USE goal_manager;
 
-ALTER TABLE linked_work_items
-  ADD COLUMN IF NOT EXISTS gitlab_labels TEXT NULL AFTER blocked,
-  ADD COLUMN IF NOT EXISTS gitlab_assignee VARCHAR(128) NULL AFTER gitlab_labels,
-  ADD COLUMN IF NOT EXISTS gitlab_state VARCHAR(32) NULL AFTER gitlab_assignee,
-  ADD COLUMN IF NOT EXISTS last_synced_at DATETIME NULL AFTER gitlab_state;
+-- GitLab sync columns are defined in 001_schema.sql for clean installs.
 
 CREATE TABLE IF NOT EXISTS gitlab_configs (
   id VARCHAR(64) PRIMARY KEY,

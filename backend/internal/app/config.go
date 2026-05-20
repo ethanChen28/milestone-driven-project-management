@@ -3,18 +3,20 @@ package app
 import "os"
 
 type Config struct {
-	ListenAddr string
-	MySQLDSN   string
-	RedisAddr  string
-	DefaultLng string
+	ListenAddr     string
+	MySQLDSN       string
+	RedisAddr      string
+	DefaultLng     string
+	StorageBackend string
 }
 
 func LoadConfig() Config {
 	return Config{
-		ListenAddr: getenv("APP_LISTEN_ADDR", ":8080"),
-		MySQLDSN:   getenv("MYSQL_DSN", "goal:goal@tcp(mysql:3306)/goal_manager?parseTime=true"),
-		RedisAddr:  getenv("REDIS_ADDR", "redis:6379"),
-		DefaultLng: getenv("APP_DEFAULT_LOCALE", "zh-CN"),
+		ListenAddr:     getenv("APP_LISTEN_ADDR", ":8080"),
+		MySQLDSN:       getenv("MYSQL_DSN", "goal:goal@tcp(mysql:3306)/goal_manager?parseTime=true"),
+		RedisAddr:      getenv("REDIS_ADDR", "redis:6379"),
+		DefaultLng:     getenv("APP_DEFAULT_LOCALE", "zh-CN"),
+		StorageBackend: getenv("STORAGE_BACKEND", "memory"),
 	}
 }
 

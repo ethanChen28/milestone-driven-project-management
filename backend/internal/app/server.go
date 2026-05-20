@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -16,13 +18,43 @@ type Server struct {
 }
 
 func NewServer(cfg Config) *Server {
+	server, err := NewServerE(cfg)
+	if err != nil {
+		panic(err)
+	}
+	return server
+}
+
+func NewServerE(cfg Config) (*Server, error) {
+	store, err := newStoreForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
 	s := &Server{
 		cfg:   cfg,
-		store: service.NewStore(),
+		store: store,
 		mux:   http.NewServeMux(),
 	}
 	s.routes()
-	return s
+	return s, nil
+}
+
+func newStoreForConfig(cfg Config) (*service.Store, error) {
+	switch cfg.StorageBackend {
+	case "", "memory":
+		return service.NewStoreWithRepository(service.NewMemoryRepository())
+	case "mysql":
+		if cfg.MySQLDSN == "" {
+			return nil, fmt.Errorf("MYSQL_DSN is required when STORAGE_BACKEND=mysql")
+		}
+		repo, err := service.NewMySQLRepository(context.Background(), cfg.MySQLDSN)
+		if err != nil {
+			return nil, err
+		}
+		return service.NewStoreWithRepository(repo)
+	default:
+		return nil, fmt.Errorf("unsupported storage backend %q", cfg.StorageBackend)
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -59,8 +91,10 @@ func (s *Server) routes() {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
-		"status":        "ok",
-		"defaultLocale": s.cfg.DefaultLng,
+		"status":             "ok",
+		"defaultLocale":      s.cfg.DefaultLng,
+		"storageBackend":     s.store.StorageBackend(),
+		"durablePersistence": fmt.Sprintf("%t", s.store.Durable()),
 	})
 }
 
@@ -329,7 +363,7 @@ func (s *Server) handleMilestoneDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWeeklyReview(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.WeeklyReviewView())
+	writeJSON(w, http.StatusOK, filterWeeklyReview(s.store.WeeklyReviewView(), r))
 }
 
 func (s *Server) handleGitLabConfigs(w http.ResponseWriter, r *http.Request) {
@@ -722,6 +756,7 @@ func filterMilestones(items []domain.Milestone, r *http.Request) []domain.Milest
 	owner := r.URL.Query().Get("owner")
 	status := r.URL.Query().Get("status")
 	health := r.URL.Query().Get("health")
+	risk := r.URL.Query().Get("risk")
 	filtered := make([]domain.Milestone, 0, len(items))
 	for _, item := range items {
 		if projectID != "" && item.ProjectID != projectID {
@@ -734,6 +769,9 @@ func filterMilestones(items []domain.Milestone, r *http.Request) []domain.Milest
 			continue
 		}
 		if health != "" && string(item.HealthStatus) != health {
+			continue
+		}
+		if risk != "" && item.RiskLevel != risk {
 			continue
 		}
 		filtered = append(filtered, item)
@@ -767,6 +805,7 @@ func filterWorkItems(items []domain.LinkedWorkItem, r *http.Request) []domain.Li
 	sourceType := r.URL.Query().Get("sourceType")
 	owner := r.URL.Query().Get("owner")
 	status := r.URL.Query().Get("status")
+	gitlabContext := firstNonEmpty(r.URL.Query().Get("gitlabContext"), r.URL.Query().Get("gitLabContext"), r.URL.Query().Get("gitlabRepository"), r.URL.Query().Get("repository"))
 	filtered := make([]domain.LinkedWorkItem, 0, len(items))
 	for _, item := range items {
 		if projectID != "" && item.ProjectID != projectID {
@@ -784,9 +823,36 @@ func filterWorkItems(items []domain.LinkedWorkItem, r *http.Request) []domain.Li
 		if status != "" && item.Status != status {
 			continue
 		}
+		if gitlabContext != "" && !workItemMatchesGitLabContext(item, gitlabContext) {
+			continue
+		}
 		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func workItemMatchesGitLabContext(item domain.LinkedWorkItem, context string) bool {
+	if item.SourceType != domain.SourceGitLabIssue {
+		return false
+	}
+	if containsIgnoreCase(item.SourceURL, context) || containsIgnoreCase(item.SourceID, context) || containsIgnoreCase(item.GitLabAssignee, context) {
+		return true
+	}
+	for _, label := range item.GitLabLabels {
+		if containsIgnoreCase(label, context) {
+			return true
+		}
+	}
+	return false
 }
 
 func filterWeeklyUpdates(items []domain.WeeklyUpdate, r *http.Request) []domain.WeeklyUpdate {
@@ -811,4 +877,10 @@ func filterWeeklyUpdates(items []domain.WeeklyUpdate, r *http.Request) []domain.
 		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func filterWeeklyReview(view domain.WeeklyReviewView, r *http.Request) domain.WeeklyReviewView {
+	view.DelayedMilestones = filterMilestones(view.DelayedMilestones, r)
+	view.BlockedMilestones = filterMilestones(view.BlockedMilestones, r)
+	return view
 }
