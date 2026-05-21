@@ -18,7 +18,7 @@ provide("locale", locale);
 provide("toggleLocale", toggleLocale);
 provide("currentRole", currentRole);
 
-const navItems = ["dashboard", "projects", "milestones", "roadmap", "review"] as const;
+const navItems = ["dashboard", "projects", "tasks", "milestones", "roadmap", "review"] as const;
 </script>
 
 <template>

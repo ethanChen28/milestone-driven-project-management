@@ -296,6 +296,17 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 		}
 		updated, err := s.store.UpsertWorkItem(roleFromHeader(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
+	case http.MethodDelete:
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+			return
+		}
+		if err := s.store.DeleteWorkItem(roleFromHeader(r), id); err != nil {
+			writeStoreResultWithStatus(w, http.StatusOK, nil, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	default:
 		http.NotFound(w, r)
 	}

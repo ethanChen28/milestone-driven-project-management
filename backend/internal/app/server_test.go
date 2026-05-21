@@ -116,6 +116,46 @@ func TestNonBAUWorkItemRequiresProject(t *testing.T) {
 	}
 }
 
+func TestWorkItemCanBeDeleted(t *testing.T) {
+	server := NewServer(LoadConfig())
+	proj := createProjectWithRole(server, domain.RoleProjectOwner)
+	body, _ := json.Marshal(domain.LinkedWorkItem{
+		SourceType: domain.SourceInternalTask,
+		Title:      "Temporary task",
+		ProjectID:  proj.ID,
+		Owner:      "alice",
+		Status:     "todo",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/work-items", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleContributor))
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var created domain.LinkedWorkItem
+	if err := json.Unmarshal(resp.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+
+	delReq := httptest.NewRequest(http.MethodDelete, "/api/v1/work-items?id="+created.ID, nil)
+	delReq.Header.Set("X-Role", string(domain.RoleContributor))
+	delResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(delResp, delReq)
+	if delResp.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", delResp.Code, delResp.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/work-items?id="+created.ID, nil)
+	getReq.Header.Set("X-Role", string(domain.RoleContributor))
+	getResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(getResp, getReq)
+	if getResp.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after delete, got %d body=%s", getResp.Code, getResp.Body.String())
+	}
+}
+
 func TestRoadmapPeriodCanBeUpdatedAndArchived(t *testing.T) {
 	server := NewServer(LoadConfig())
 	createBody, _ := json.Marshal(domain.RoadmapPeriod{

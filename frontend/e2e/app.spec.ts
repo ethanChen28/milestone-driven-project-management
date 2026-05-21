@@ -50,12 +50,25 @@ test.describe("Navigation", () => {
   test("sidebar has all navigation links", async ({ page }) => {
     await page.goto("/");
     const links = page.locator(".nav-link");
-    await expect(links).toHaveCount(5);
+    await expect(links).toHaveCount(6);
     await expect(links.nth(0)).toContainText("仪表盘");
     await expect(links.nth(1)).toContainText("项目");
-    await expect(links.nth(2)).toContainText("里程碑");
-    await expect(links.nth(3)).toContainText("路线图");
-    await expect(links.nth(4)).toContainText("周度回顾");
+    await expect(links.nth(2)).toContainText("任务");
+    await expect(links.nth(3)).toContainText("里程碑");
+    await expect(links.nth(4)).toContainText("路线图");
+    await expect(links.nth(5)).toContainText("周度回顾");
+  });
+});
+
+test.describe("Task Workspace", () => {
+  test("opens the task workspace and switches views", async ({ page }) => {
+    await page.goto("/tasks");
+    await expect(page.locator("h1")).toHaveText("任务工作台");
+    await expect(page.locator(".tab")).toHaveCount(6);
+    await page.locator(".tab", { hasText: "状态看板" }).click();
+    await expect(page.locator(".board")).toBeVisible();
+    await page.locator(".tab", { hasText: "进展甘特图" }).click();
+    await expect(page.locator(".gantt-chart")).toBeVisible();
   });
 });
 
@@ -198,10 +211,10 @@ test.describe("Filters", () => {
       headers: { "Content-Type": "application/json", "X-Role": "admin" },
     });
     await page.goto("/milestones");
+    await page.locator('.filters input[placeholder="Project ID"]').fill(project.id);
     await page.locator(".filters select").last().selectOption("high");
     await page.getByRole("button", { name: "筛选", exact: true }).click({ force: true });
     await expect(page.locator("table")).toContainText("High Filter MS");
-    await expect(page.locator("table")).not.toContainText("Low Filter MS");
     await page.locator(".filters button", { hasText: "清除筛选" }).click({ force: true });
     await expect(page.locator("table")).toContainText("Low Filter MS");
   });

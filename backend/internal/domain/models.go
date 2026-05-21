@@ -118,24 +118,28 @@ type Workstream struct {
 }
 
 type LinkedWorkItem struct {
-	ID           string             `json:"id"`
-	SourceType   WorkItemSourceType `json:"sourceType"`
-	SourceID     string             `json:"sourceId"`
-	SourceURL    string             `json:"sourceUrl"`
-	Title        string             `json:"title"`
-	ProjectID    string             `json:"projectId"`
-	MilestoneID  string             `json:"milestoneId"`
-	WorkstreamID string             `json:"workstreamId"`
-	Owner        string             `json:"owner"`
-	Status       string             `json:"status"`
-	Estimate     string             `json:"estimate"`
-	DueDate      *time.Time         `json:"dueDate,omitempty"`
-	Blocked      bool               `json:"blocked"`
-	GitLabLabels   []string        `json:"gitlabLabels,omitempty"`
-	GitLabAssignee string          `json:"gitlabAssignee,omitempty"`
-	GitLabState    string          `json:"gitlabState,omitempty"`
-	LastSyncedAt   *time.Time      `json:"lastSyncedAt,omitempty"`
-	AuditFields  AuditFields        `json:"audit"`
+	ID               string             `json:"id"`
+	SourceType       WorkItemSourceType `json:"sourceType"`
+	SourceID         string             `json:"sourceId"`
+	SourceURL        string             `json:"sourceUrl"`
+	Title            string             `json:"title"`
+	ProjectID        string             `json:"projectId"`
+	MilestoneID      string             `json:"milestoneId"`
+	WorkstreamID     string             `json:"workstreamId"`
+	Owner            string             `json:"owner"`
+	Status           string             `json:"status"`
+	Priority         string             `json:"priority,omitempty"`
+	Tags             []string           `json:"tags,omitempty"`
+	Estimate         string             `json:"estimate"`
+	PlannedStartDate *time.Time         `json:"plannedStartDate,omitempty"`
+	PlannedEndDate   *time.Time         `json:"plannedEndDate,omitempty"`
+	DueDate          *time.Time         `json:"dueDate,omitempty"`
+	Blocked          bool               `json:"blocked"`
+	GitLabLabels     []string           `json:"gitlabLabels,omitempty"`
+	GitLabAssignee   string             `json:"gitlabAssignee,omitempty"`
+	GitLabState      string             `json:"gitlabState,omitempty"`
+	LastSyncedAt     *time.Time         `json:"lastSyncedAt,omitempty"`
+	AuditFields      AuditFields        `json:"audit"`
 }
 
 type WeeklyUpdate struct {
@@ -164,16 +168,16 @@ type GitLabConfig struct {
 }
 
 type SyncRule struct {
-	ID            string      `json:"id"`
-	GitLabConfigID string     `json:"gitlabConfigId"`
-	ProjectID     string      `json:"projectId"`
-	MilestoneID   string      `json:"milestoneId,omitempty"`
-	Label         string      `json:"label,omitempty"`
-	Assignee      string      `json:"assignee,omitempty"`
-	GitLabMilestone string    `json:"gitlabMilestone,omitempty"`
-	QueryFilter   string      `json:"queryFilter,omitempty"`
-	Enabled       bool        `json:"enabled"`
-	AuditFields   AuditFields `json:"audit"`
+	ID              string      `json:"id"`
+	GitLabConfigID  string      `json:"gitlabConfigId"`
+	ProjectID       string      `json:"projectId"`
+	MilestoneID     string      `json:"milestoneId,omitempty"`
+	Label           string      `json:"label,omitempty"`
+	Assignee        string      `json:"assignee,omitempty"`
+	GitLabMilestone string      `json:"gitlabMilestone,omitempty"`
+	QueryFilter     string      `json:"queryFilter,omitempty"`
+	Enabled         bool        `json:"enabled"`
+	AuditFields     AuditFields `json:"audit"`
 }
 
 type SyncJob struct {
@@ -191,7 +195,7 @@ type SyncJob struct {
 type SyncFailure struct {
 	ID          string      `json:"id"`
 	WorkItemID  string      `json:"workItemId"`
-	SourceID     string     `json:"sourceId"`
+	SourceID    string      `json:"sourceId"`
 	Error       string      `json:"error"`
 	RetryCount  int         `json:"retryCount"`
 	LastAttempt time.Time   `json:"lastAttempt"`
@@ -200,13 +204,13 @@ type SyncFailure struct {
 }
 
 type NotificationEvent struct {
-	ID        string      `json:"id"`
-	EventType string      `json:"eventType"`
-	Target    string      `json:"target"`
-	Channel   string      `json:"channel"`
-	Title     string      `json:"title"`
-	Message   string      `json:"message"`
-	Delivered bool        `json:"delivered"`
+	ID          string      `json:"id"`
+	EventType   string      `json:"eventType"`
+	Target      string      `json:"target"`
+	Channel     string      `json:"channel"`
+	Title       string      `json:"title"`
+	Message     string      `json:"message"`
+	Delivered   bool        `json:"delivered"`
 	AuditFields AuditFields `json:"audit"`
 }
 
@@ -230,16 +234,16 @@ type PortfolioSummary struct {
 }
 
 type RoadmapOverviewItem struct {
-	Period  RoadmapPeriod `json:"period"`
-	Items   []RoadmapItem `json:"items"`
+	Period           RoadmapPeriod    `json:"period"`
+	Items            []RoadmapItem    `json:"items"`
 	ProjectSummaries []ProjectSummary `json:"projectSummaries"`
 }
 
 type ProjectSummary struct {
-	Project           Project     `json:"project"`
-	Milestones        []Milestone `json:"milestones"`
-	HealthStatus      string      `json:"healthStatus"`
-	ProgressPercent   int         `json:"progressPercent"`
+	Project         Project     `json:"project"`
+	Milestones      []Milestone `json:"milestones"`
+	HealthStatus    string      `json:"healthStatus"`
+	ProgressPercent int         `json:"progressPercent"`
 }
 
 type ProjectDetailView struct {
@@ -250,49 +254,49 @@ type ProjectDetailView struct {
 }
 
 type MilestoneDetailView struct {
-	Milestone  Milestone        `json:"milestone"`
-	WorkItems  []LinkedWorkItem `json:"workItems"`
-	Updates    []WeeklyUpdate   `json:"updates"`
+	Milestone Milestone        `json:"milestone"`
+	WorkItems []LinkedWorkItem `json:"workItems"`
+	Updates   []WeeklyUpdate   `json:"updates"`
 }
 
 type WeeklyReviewView struct {
-	Updates            []WeeklyUpdate   `json:"updates"`
-	DelayedMilestones  []Milestone      `json:"delayedMilestones"`
-	BlockedMilestones  []Milestone      `json:"blockedMilestones"`
+	Updates           []WeeklyUpdate `json:"updates"`
+	DelayedMilestones []Milestone    `json:"delayedMilestones"`
+	BlockedMilestones []Milestone    `json:"blockedMilestones"`
 }
 
 type OperationalStatus struct {
-	SyncStatus       SyncStatusSummary    `json:"syncStatus"`
-	ProjectionStatus ProjectionSummary    `json:"projectionStatus"`
+	SyncStatus         SyncStatusSummary   `json:"syncStatus"`
+	ProjectionStatus   ProjectionSummary   `json:"projectionStatus"`
 	NotificationStatus NotificationSummary `json:"notificationStatus"`
-	AlertSummary     AlertSummary         `json:"alertSummary"`
+	AlertSummary       AlertSummary        `json:"alertSummary"`
 }
 
 type SyncStatusSummary struct {
-	TotalJobs      int    `json:"totalJobs"`
-	LastRunAt      *time.Time `json:"lastRunAt,omitempty"`
-	FailedJobs     int    `json:"failedJobs"`
-	UnresolvedFailures int `json:"unresolvedFailures"`
-	ActiveRules    int    `json:"activeRules"`
+	TotalJobs          int        `json:"totalJobs"`
+	LastRunAt          *time.Time `json:"lastRunAt,omitempty"`
+	FailedJobs         int        `json:"failedJobs"`
+	UnresolvedFailures int        `json:"unresolvedFailures"`
+	ActiveRules        int        `json:"activeRules"`
 }
 
 type ProjectionSummary struct {
 	PortfolioLastUpdated *time.Time `json:"portfolioLastUpdated,omitempty"`
-	RoadmapCount    int    `json:"roadmapCount"`
-	ProjectCount    int    `json:"projectCount"`
-	MilestoneCount  int    `json:"milestoneCount"`
-	WorkItemCount   int    `json:"workItemCount"`
+	RoadmapCount         int        `json:"roadmapCount"`
+	ProjectCount         int        `json:"projectCount"`
+	MilestoneCount       int        `json:"milestoneCount"`
+	WorkItemCount        int        `json:"workItemCount"`
 }
 
 type NotificationSummary struct {
-	TotalSent       int `json:"totalSent"`
-	DeliveryFailed  int `json:"deliveryFailed"`
-	PendingAlerts   int `json:"pendingAlerts"`
+	TotalSent      int `json:"totalSent"`
+	DeliveryFailed int `json:"deliveryFailed"`
+	PendingAlerts  int `json:"pendingAlerts"`
 }
 
 type AlertSummary struct {
-	Total            int `json:"total"`
-	Undismissed      int `json:"undismissed"`
+	Total             int `json:"total"`
+	Undismissed       int `json:"undismissed"`
 	BlockedMilestones int `json:"blockedMilestones"`
 	OverdueMilestones int `json:"overdueMilestones"`
 	MissingUpdates    int `json:"missingUpdates"`

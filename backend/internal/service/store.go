@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -491,6 +492,19 @@ func (s *Store) UpsertWorkItem(role domain.WorkspaceRole, id string, item domain
 		return domain.LinkedWorkItem{}, err
 	}
 	return item, nil
+}
+
+func (s *Store) DeleteWorkItem(role domain.WorkspaceRole, id string) error {
+	if !HasPermission(role, PermManageWorkItem) {
+		return ErrForbidden
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.workItems[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.workItems, id)
+	return s.persistLocked()
 }
 
 func (s *Store) LinkGitLabIssue(role domain.WorkspaceRole, item domain.LinkedWorkItem) (domain.LinkedWorkItem, error) {
@@ -1336,8 +1350,19 @@ func validateMilestoneTransition(current, next domain.Milestone) error {
 }
 
 func validateWorkItem(item domain.LinkedWorkItem) error {
+	if strings.TrimSpace(item.Title) == "" {
+		return fmt.Errorf("%w: title is required", ErrInvalid)
+	}
+	if item.SourceType == "" {
+		return fmt.Errorf("%w: sourceType is required", ErrInvalid)
+	}
 	if item.SourceType != domain.SourceBAUTask && item.ProjectID == "" {
 		return fmt.Errorf("%w: non-BAU work items must belong to a project", ErrInvalid)
+	}
+	if item.SourceType == domain.SourceGitLabIssue {
+		if item.SourceID == "" || item.SourceURL == "" {
+			return fmt.Errorf("%w: sourceId and sourceUrl are required for GitLab issues", ErrInvalid)
+		}
 	}
 	return nil
 }

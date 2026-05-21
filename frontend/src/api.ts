@@ -96,7 +96,11 @@ export interface LinkedWorkItem {
   workstreamId: string;
   owner: string;
   status: string;
+  priority?: string;
+  tags?: string[];
   estimate: string;
+  plannedStartDate?: string;
+  plannedEndDate?: string;
   dueDate?: string;
   blocked: boolean;
   gitLabLabels?: string[];
@@ -106,6 +110,10 @@ export interface LinkedWorkItem {
   gitLabState?: string;
   gitlabState?: string;
   lastSyncedAt?: string;
+  audit?: {
+    createdAt?: string;
+    updatedAt?: string;
+  };
 }
 
 export function gitlabLabels(item: LinkedWorkItem): string[] {
@@ -230,6 +238,52 @@ export function label(key: string, locale: Locale): string {
     lastSynced: { "zh-CN": "最近同步", "en-US": "Last Synced" },
     openIssue: { "zh-CN": "打开 Issue", "en-US": "Open Issue" },
     gitlabContext: { "zh-CN": "GitLab 上下文", "en-US": "GitLab Context" },
+    tasks: { "zh-CN": "任务", "en-US": "Tasks" },
+    taskWorkspace: { "zh-CN": "任务工作台", "en-US": "Task Workspace" },
+    taskList: { "zh-CN": "任务列表", "en-US": "Task List" },
+    taskBoard: { "zh-CN": "状态看板", "en-US": "Status Board" },
+    taskGantt: { "zh-CN": "进展甘特图", "en-US": "Gantt View" },
+    taskTimeline: { "zh-CN": "时间线", "en-US": "Timeline" },
+    taskByProject: { "zh-CN": "按项目查看", "en-US": "By Project" },
+    taskByPriority: { "zh-CN": "按优先级查看", "en-US": "By Priority" },
+    taskMetrics: { "zh-CN": "关键指标", "en-US": "Key Metrics" },
+    taskFilters: { "zh-CN": "任务筛选", "en-US": "Task Filters" },
+    newTask: { "zh-CN": "新建任务", "en-US": "New Task" },
+    editTask: { "zh-CN": "编辑任务", "en-US": "Edit Task" },
+    taskDetail: { "zh-CN": "任务详情", "en-US": "Task Detail" },
+    deleteTask: { "zh-CN": "删除任务", "en-US": "Delete Task" },
+    saveTask: { "zh-CN": "保存任务", "en-US": "Save Task" },
+    taskCreateSuccess: { "zh-CN": "任务已创建", "en-US": "Task created" },
+    taskUpdateSuccess: { "zh-CN": "任务已更新", "en-US": "Task updated" },
+    taskDeleteConfirm: { "zh-CN": "确认删除该任务？", "en-US": "Delete this task?" },
+    taskDeleteSuccess: { "zh-CN": "任务已删除", "en-US": "Task deleted" },
+    project: { "zh-CN": "项目", "en-US": "Project" },
+    milestone: { "zh-CN": "里程碑", "en-US": "Milestone" },
+    sourceType: { "zh-CN": "来源类型", "en-US": "Source Type" },
+    sourceId: { "zh-CN": "来源 ID", "en-US": "Source ID" },
+    sourceUrl: { "zh-CN": "来源链接", "en-US": "Source URL" },
+    workstream: { "zh-CN": "工作流", "en-US": "Workstream" },
+    groupBy: { "zh-CN": "分组", "en-US": "Group By" },
+    sortBy: { "zh-CN": "排序", "en-US": "Sort By" },
+    scale: { "zh-CN": "时间尺度", "en-US": "Scale" },
+    keyword: { "zh-CN": "关键词", "en-US": "Keyword" },
+    tags: { "zh-CN": "标签", "en-US": "Tags" },
+    estimate: { "zh-CN": "预估工作量", "en-US": "Estimate" },
+    blockedFlag: { "zh-CN": "阻塞", "en-US": "Blocked" },
+    dueDate: { "zh-CN": "截止日期", "en-US": "Due Date" },
+    priorityBucket: { "zh-CN": "优先级", "en-US": "Priority" },
+    ownerTeam: { "zh-CN": "负责人", "en-US": "Owner" },
+    blockedTask: { "zh-CN": "阻塞任务", "en-US": "Blocked Task" },
+    overdueTask: { "zh-CN": "逾期任务", "en-US": "Overdue Task" },
+    nearDueTask: { "zh-CN": "临近截止", "en-US": "Near Due" },
+    completedTask: { "zh-CN": "已完成", "en-US": "Completed" },
+    inProgressTask: { "zh-CN": "进行中", "en-US": "In Progress" },
+    notStartedTask: { "zh-CN": "未开始", "en-US": "Not Started" },
+    taskCount: { "zh-CN": "任务总数", "en-US": "Total Tasks" },
+    viewAll: { "zh-CN": "查看全部", "en-US": "View All" },
+    currentDay: { "zh-CN": "今天", "en-US": "Today" },
+    projectDeadline: { "zh-CN": "项目截止日期", "en-US": "Project Deadline" },
+    milestoneTimeline: { "zh-CN": "里程碑日期", "en-US": "Milestone Dates" },
   };
   return labels[key]?.[locale] ?? key;
 }
