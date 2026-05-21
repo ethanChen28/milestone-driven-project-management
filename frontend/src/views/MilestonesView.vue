@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, ref, type Ref } from "vue";
 import { useRouter } from "vue-router";
 import type { Locale } from "../i18n";
-import { label, apiFetch, can, type Milestone, type WorkspaceRole } from "../api";
+import { dateInputToIso, label, apiFetch, can, type Milestone, type WorkspaceRole } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
@@ -27,7 +27,7 @@ onMounted(load);
 
 async function create() {
   if (!canCreate.value) return;
-  await apiFetch("/milestones", { method: "POST", body: JSON.stringify(form.value) });
+  await apiFetch("/milestones", { method: "POST", body: JSON.stringify({ ...form.value, plannedDate: dateInputToIso(form.value.plannedDate) }) });
   showForm.value = false;
   form.value = { projectId: "", title: "", owner: "", completionCriteria: "", status: "not_started", healthStatus: "on_track", plannedDate: "", riskLevel: "low" };
   await load();
@@ -64,7 +64,7 @@ function go(id: string) { router.push({ name: "milestone-detail", params: { id }
     </form>
     <table v-if="milestones.length">
       <thead><tr><th>{{ label('title', locale) }}</th><th>{{ label('status', locale) }}</th><th>{{ label('health', locale) }}</th><th>{{ label('risk', locale) }}</th><th>{{ label('owner', locale) }}</th><th>{{ label('plannedDate', locale) }}</th></tr></thead>
-      <tbody><tr v-for="m in milestones" :key="m.id" class="clickable" @click="go(m.id)"><td>{{ m.title }}</td><td>{{ m.status }}</td><td>{{ m.healthStatus }}</td><td>{{ m.riskLevel || '-' }}</td><td>{{ m.owner }}</td><td>{{ m.plannedDate?.slice(0,10) || '-' }}</td></tr></tbody>
+      <tbody><tr v-for="m in milestones" :key="m.id" class="clickable" tabindex="0" role="link" @click="go(m.id)" @keyup.enter="go(m.id)"><td>{{ m.title }}</td><td>{{ m.status }}</td><td>{{ m.healthStatus }}</td><td>{{ m.riskLevel || '-' }}</td><td>{{ m.owner }}</td><td>{{ m.plannedDate?.slice(0,10) || '-' }}</td></tr></tbody>
     </table>
     <p v-else class="empty">{{ label('noData', locale) }}</p>
   </div>
@@ -74,17 +74,14 @@ function go(id: string) { router.push({ name: "milestone-detail", params: { id }
 .page { max-width: 960px; }
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 h1 { margin: 0; }
-.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #fff; padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-.filters input, .filters select { padding: 8px 10px; border: 1px solid #d1d9d6; border-radius: 8px; }
-.form { display: flex; flex-direction: column; gap: 10px; max-width: 480px; margin-bottom: 20px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-.form input, .form select { padding: 10px 12px; border: 1px solid #d1d9d6; border-radius: 8px; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--color-surface); padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+.filters input, .filters select { padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.form { display: flex; flex-direction: column; gap: 10px; max-width: 480px; margin-bottom: 20px; background: var(--color-surface); padding: 20px; border-radius: 12px; box-shadow: var(--shadow-md); }
+.form input, .form select { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
 .row { display: flex; gap: 10px; }
-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-th { text-align: left; padding: 12px 16px; background: #f0f5f3; font-size: .85rem; color: #4a7a6d; }
+table { width: 100%; border-collapse: collapse; background: var(--color-surface); border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-md); }
+th { text-align: left; padding: 12px 16px; background: var(--color-surface-alt); font-size: .85rem; color: var(--color-text-muted); }
 td { padding: 12px 16px; border-top: 1px solid #eaf0ed; }
 .clickable { cursor: pointer; transition: background .1s; }
-.clickable:hover { background: #f0f5f3; }
-.btn { padding: 8px 18px; border-radius: 8px; border: 1px solid #d1d9d6; background: #fff; cursor: pointer; }
-.btn.primary { background: #10352a; color: #fff; border-color: #10352a; }
-.empty { color: #6b8a80; }
+.clickable:hover { background: var(--color-surface-alt); }
 </style>

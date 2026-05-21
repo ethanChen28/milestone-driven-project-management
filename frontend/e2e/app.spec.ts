@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 async function selectRole(page: any, role: string) {
-  await page.locator(".role-select").selectOption(role);
+  await page.getByLabel("workspace role").selectOption(role);
 }
 
 test.describe("Goal Manager Frontend", () => {
@@ -26,7 +26,7 @@ test.describe("Goal Manager Frontend", () => {
   test("role selector persists and selected role is sent", async ({ page }) => {
     await selectRole(page, "project_owner");
     await page.reload();
-    await expect(page.locator(".role-select")).toHaveValue("project_owner");
+    await expect(page.getByLabel("workspace role")).toHaveValue("project_owner");
 
     let seenRole = "";
     await page.route("/api/v1/projects", async (route) => {
@@ -109,6 +109,7 @@ test.describe("F-2: Create Milestone via UI", () => {
       headers: { "Content-Type": "application/json", "X-Role": "admin" },
     });
     await page.reload();
+    await page.locator(".tab", { hasText: "里程碑" }).click({ force: true });
     await expect(page.locator("table")).toContainText("E2E UI Milestone");
   });
 });
@@ -129,7 +130,7 @@ test.describe("F-5: Roadmap Overview", () => {
 test.describe("F-6: Submit Weekly Update via UI", () => {
   test("navigates to review and submits a weekly update", async ({ page }) => {
     const resp = await page.request.post("/api/v1/projects", {
-      data: { name: "Update UI Test", owner: "tester", status: "active" },
+      data: { name: "Update UI Test", owner: "tester", participants: ["tester"], status: "active" },
       headers: { "Content-Type": "application/json", "X-Role": "admin" },
     });
     const project = await resp.json();

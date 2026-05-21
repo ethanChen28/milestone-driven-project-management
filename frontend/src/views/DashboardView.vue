@@ -30,7 +30,7 @@ onMounted(async () => {
   <div class="dashboard">
     <h1>{{ t(locale, "title") }}</h1>
     <p class="subtitle">{{ t(locale, "subtitle") }}</p>
-    <div v-if="loading" class="loading">{{ t(locale, "loading") }}</div>
+    <div v-if="loading" class="loading" aria-live="polite">{{ t(locale, "loading") }}</div>
     <div v-else class="grid">
       <article v-for="c in cards" :key="c.key" class="stat-card">
         <span>{{ label(c.key, locale) }}</span>
@@ -43,7 +43,7 @@ onMounted(async () => {
       <div class="health-bars">
         <div v-for="(v, k) in summary.healthDistribution" :key="k" class="bar-row">
           <span>{{ k }}</span>
-          <div class="bar-track"><div class="bar-fill" :class="k" :style="{ width: v / summary.activeProjects * 100 + '%' }" /></div>
+          <div class="bar-track" role="progressbar" :aria-valuenow="v" aria-valuemin="0" :aria-valuemax="summary.activeProjects" :aria-label="`${k}: ${v} of ${summary.activeProjects} projects`"><div class="bar-fill" :class="k" :style="{ width: v / summary.activeProjects * 100 + '%' }" /></div>
           <strong>{{ v }}</strong>
         </div>
       </div>
@@ -53,18 +53,18 @@ onMounted(async () => {
 
 <style scoped>
 h1 { margin: 0; font-size: 2rem; }
-.subtitle { margin: 8px 0 24px; color: #4a7a6d; }
+.subtitle { margin: 8px 0 24px; color: var(--color-text-muted); }
 .loading { color: #2d7a61; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 .stat-card {
-  padding: 20px; border-radius: 16px; background: rgba(16,53,42,.92); color: #fff;
+  padding: 20px; border-radius: var(--radius-xl); background: rgba(16,53,42,.92); color: #fff;
   display: grid; gap: 8px;
 }
 .stat-card strong { font-size: 1.8rem; }
 .health { margin-top: 28px; }
 .health-bars { display: flex; flex-direction: column; gap: 8px; max-width: 480px; }
 .bar-row { display: flex; align-items: center; gap: 10px; }
-.bar-row span:first-child { width: 80px; text-align: right; font-size: .85rem; color: #4a7a6d; }
+.bar-row span:first-child { width: 80px; text-align: right; font-size: .85rem; color: var(--color-text-muted); }
 .bar-track { flex: 1; height: 8px; border-radius: 4px; background: #e0ebe6; }
 .bar-fill { height: 100%; border-radius: 4px; }
 .bar-fill.on_track { background: #22c55e; }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"goal-manager/backend/internal/domain"
 	"goal-manager/backend/internal/service"
@@ -73,6 +74,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/dashboard/portfolio", s.handlePortfolioDashboard)
 	s.mux.HandleFunc("/api/v1/dashboard/roadmap", s.handleRoadmapOverview)
 	s.mux.HandleFunc("/api/v1/dashboard/project", s.handleProjectDetail)
+	s.mux.HandleFunc("/api/v1/project-space", s.handleProjectSpace)
 	s.mux.HandleFunc("/api/v1/dashboard/milestone", s.handleMilestoneDetail)
 	s.mux.HandleFunc("/api/v1/review/weekly", s.handleWeeklyReview)
 	s.mux.HandleFunc("/api/v1/gitlab-configs", s.handleGitLabConfigs)
@@ -183,7 +185,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateProject(roleFromHeader(r), item)
+		created, err := s.store.CreateProjectForActor(authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -195,7 +197,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertProject(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertProjectForActor(authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -216,7 +218,7 @@ func (s *Server) handleMilestones(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateMilestone(roleFromHeader(r), item)
+		created, err := s.store.CreateMilestoneForActor(authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -228,7 +230,7 @@ func (s *Server) handleMilestones(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertMilestone(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertMilestoneForActor(authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -282,7 +284,7 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateLinkedWorkItem(roleFromHeader(r), item)
+		created, err := s.store.CreateLinkedWorkItemForActor(authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -294,7 +296,7 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertWorkItem(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertWorkItemForActor(authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -302,7 +304,7 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 			return
 		}
-		if err := s.store.DeleteWorkItem(roleFromHeader(r), id); err != nil {
+		if err := s.store.DeleteWorkItemForActor(authFromRequest(r), id); err != nil {
 			writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 			return
 		}
@@ -326,7 +328,7 @@ func (s *Server) handleWeeklyUpdates(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateWeeklyUpdate(roleFromHeader(r), item)
+		created, err := s.store.CreateWeeklyUpdateForActor(authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -338,7 +340,7 @@ func (s *Server) handleWeeklyUpdates(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertWeeklyUpdate(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertWeeklyUpdateForActor(authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -360,6 +362,16 @@ func (s *Server) handleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	detail, err := s.store.ProjectDetail(id)
+	writeStoreResultWithStatus(w, http.StatusOK, detail, err)
+}
+
+func (s *Server) handleProjectSpace(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+		return
+	}
+	detail, err := s.store.ProjectSpace(id)
 	writeStoreResultWithStatus(w, http.StatusOK, detail, err)
 }
 
@@ -474,7 +486,7 @@ func (s *Server) handleGitLabLink(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &item) {
 		return
 	}
-	created, err := s.store.LinkGitLabIssue(roleFromHeader(r), item)
+	created, err := s.store.LinkGitLabIssueForActor(authFromRequest(r), item)
 	writeStoreResult(w, created, err)
 }
 
@@ -493,7 +505,7 @@ func (s *Server) handleGitLabUnlink(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 		return
 	}
-	if err := s.store.UnlinkGitLabIssue(roleFromHeader(r), body.ID); err != nil {
+	if err := s.store.UnlinkGitLabIssueForActor(authFromRequest(r), body.ID); err != nil {
 		writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 		return
 	}
@@ -663,6 +675,10 @@ func roleFromHeader(r *http.Request) domain.WorkspaceRole {
 	}
 }
 
+func authFromRequest(r *http.Request) service.AuthContext {
+	return service.ActorAuth(roleFromHeader(r), strings.TrimSpace(r.Header.Get("X-User")))
+}
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool {
 	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
@@ -816,7 +832,11 @@ func filterWorkItems(items []domain.LinkedWorkItem, r *http.Request) []domain.Li
 	sourceType := r.URL.Query().Get("sourceType")
 	owner := r.URL.Query().Get("owner")
 	status := r.URL.Query().Get("status")
+	priority := r.URL.Query().Get("priority")
+	blocked := r.URL.Query().Get("blocked")
+	overdue := r.URL.Query().Get("overdue")
 	gitlabContext := firstNonEmpty(r.URL.Query().Get("gitlabContext"), r.URL.Query().Get("gitLabContext"), r.URL.Query().Get("gitlabRepository"), r.URL.Query().Get("repository"))
+	now := time.Now().UTC()
 	filtered := make([]domain.LinkedWorkItem, 0, len(items))
 	for _, item := range items {
 		if projectID != "" && item.ProjectID != projectID {
@@ -834,12 +854,28 @@ func filterWorkItems(items []domain.LinkedWorkItem, r *http.Request) []domain.Li
 		if status != "" && item.Status != status {
 			continue
 		}
+		if priority != "" && item.Priority != priority {
+			continue
+		}
+		if blocked != "" && boolQuery(blocked) != item.Blocked {
+			continue
+		}
+		if overdue != "" {
+			itemOverdue := item.DueDate != nil && item.DueDate.Before(now) && item.Status != "done"
+			if boolQuery(overdue) != itemOverdue {
+				continue
+			}
+		}
 		if gitlabContext != "" && !workItemMatchesGitLabContext(item, gitlabContext) {
 			continue
 		}
 		filtered = append(filtered, item)
 	}
 	return filtered
+}
+
+func boolQuery(value string) bool {
+	return value == "true" || value == "1" || value == "yes"
 }
 
 func firstNonEmpty(values ...string) string {

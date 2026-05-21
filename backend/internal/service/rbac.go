@@ -4,19 +4,24 @@ import "goal-manager/backend/internal/domain"
 
 type Permission string
 
+type AuthContext struct {
+	Role domain.WorkspaceRole
+	User string
+}
+
 const (
-	PermManageIntegration    Permission = "manage_integration"
-	PermManageRoadmap        Permission = "manage_roadmap"
-	PermManageProject        Permission = "manage_project"
-	PermManageMilestone      Permission = "manage_milestone"
-	PermManageWorkItem       Permission = "manage_work_item"
-	PermManageWorkstream     Permission = "manage_workstream"
-	PermSubmitUpdate         Permission = "submit_update"
-	PermManageSyncRule       Permission = "manage_sync_rule"
-	PermViewDashboard        Permission = "view_dashboard"
-	PermManageAlert          Permission = "manage_alert"
-	PermManageNotification   Permission = "manage_notification"
-	PermRunSync              Permission = "run_sync"
+	PermManageIntegration  Permission = "manage_integration"
+	PermManageRoadmap      Permission = "manage_roadmap"
+	PermManageProject      Permission = "manage_project"
+	PermManageMilestone    Permission = "manage_milestone"
+	PermManageWorkItem     Permission = "manage_work_item"
+	PermManageWorkstream   Permission = "manage_workstream"
+	PermSubmitUpdate       Permission = "submit_update"
+	PermManageSyncRule     Permission = "manage_sync_rule"
+	PermViewDashboard      Permission = "view_dashboard"
+	PermManageAlert        Permission = "manage_alert"
+	PermManageNotification Permission = "manage_notification"
+	PermRunSync            Permission = "run_sync"
 )
 
 var rolePermissions = map[domain.WorkspaceRole]map[Permission]bool{
@@ -76,4 +81,20 @@ func HasPermission(role domain.WorkspaceRole, perm Permission) bool {
 
 func CanWrite(role domain.WorkspaceRole) bool {
 	return role != domain.RoleViewer
+}
+
+func RoleAuth(role domain.WorkspaceRole) AuthContext {
+	return AuthContext{Role: role}
+}
+
+func ActorAuth(role domain.WorkspaceRole, user string) AuthContext {
+	return AuthContext{Role: role, User: user}
+}
+
+func (auth AuthContext) HasUser() bool {
+	return auth.User != ""
+}
+
+func (auth AuthContext) IsAdmin() bool {
+	return auth.Role == domain.RoleAdmin
 }

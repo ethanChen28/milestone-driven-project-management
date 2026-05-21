@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, ref, type Ref } from "vue";
+import { computed, inject, onMounted, ref, watch, type Ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Locale } from "../i18n";
 import { apiFetch, can, label, type LinkedWorkItem, type Milestone, type Project, type WorkspaceRole } from "../api";
@@ -25,11 +25,12 @@ type TaskForm = {
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
+const currentUser = inject<Ref<string>>("currentUser")!;
 const route = useRoute();
 const router = useRouter();
 
-const id = route.params.id as string;
-const isCreate = id === "new";
+const id = route.params.id as string | undefined;
+const isCreate = route.name === "task-create" || id === "new";
 const loading = ref(false);
 const saving = ref(false);
 const deleting = ref(false);
@@ -58,6 +59,18 @@ const form = ref<TaskForm>({
 });
 
 const filteredMilestones = computed(() => milestones.value.filter((milestone) => !form.value.projectId || milestone.projectId === form.value.projectId));
+const selectedProject = computed(() => projects.value.find((project) => project.id === form.value.projectId));
+const selectedMilestone = computed(() => milestones.value.find((milestone) => milestone.id === form.value.milestoneId));
+const ownerOptions = computed(() => selectedProject.value?.participants?.filter(Boolean) ?? []);
+
+watch(
+  () => form.value.projectId,
+  () => {
+    if (isCreate && ownerOptions.value.includes(currentUser.value)) {
+      form.value.owner = currentUser.value;
+    }
+  },
+);
 
 function mapItemToForm(item: LinkedWorkItem): TaskForm {
   return {
@@ -119,6 +132,7 @@ async function load() {
       form.value = mapItemToForm(detail.value);
     }
     error.value = "";
+    if (isCreate && !form.value.owner) form.value.owner = currentUser.value;
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -168,20 +182,24 @@ async function remove() {
       <div>
         <p class="eyebrow">{{ label("taskWorkspace", locale) }}</p>
         <h1>{{ isCreate ? label("newTask", locale) : label("taskDetail", locale) }}</h1>
+        <p v-if="selectedProject" class="breadcrumb">
+          <RouterLink :to="{ name: 'project-detail', params: { id: selectedProject.id }, query: { tab: 'work-items', milestoneId: selectedMilestone?.id || undefined } }">{{ selectedProject.name }}</RouterLink>
+          <span v-if="selectedMilestone"> / {{ selectedMilestone.title }}</span>
+        </p>
       </div>
       <button class="btn" @click="router.push({ name: 'tasks' })">{{ label("viewAll", locale) }}</button>
     </div>
 
-    <p v-if="loading" class="empty">Loading...</p>
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="empty" aria-live="polite">Loading...</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <form v-if="!loading" class="form" @submit.prevent="save">
       <div class="form-grid">
         <label>{{ label("title", locale) }}<input v-model="form.title" required /></label>
         <label>{{ label("project", locale) }}<select v-model="form.projectId" required><option value="">{{ label("project", locale) }}</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
         <label>{{ label("milestone", locale) }}<select v-model="form.milestoneId"><option value="">{{ label("milestone", locale) }}</option><option v-for="milestone in filteredMilestones" :key="milestone.id" :value="milestone.id">{{ milestone.title }}</option></select></label>
-        <label>{{ label("workstream", locale) }}<input v-model="form.workstreamId" /></label>
-        <label>{{ label("ownerTeam", locale) }}<input v-model="form.owner" required /></label>
+        <label v-if="ownerOptions.length">{{ label("ownerTeam", locale) }}<select v-model="form.owner" required data-testid="task-owner-select"><option value="">{{ label("ownerTeam", locale) }}</option><option v-for="owner in ownerOptions" :key="owner" :value="owner">{{ owner }}</option></select></label>
+        <label v-else>{{ label("ownerTeam", locale) }}<input v-model="form.owner" required /></label>
         <label>{{ label("status", locale) }}<select v-model="form.status"><option value="todo">todo</option><option value="in_progress">in_progress</option><option value="done">done</option><option value="cancelled">cancelled</option></select></label>
         <label>{{ label("priorityBucket", locale) }}<select v-model="form.priority"><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></select></label>
         <label>{{ label("estimate", locale) }}<input v-model="form.estimate" placeholder="1d" /></label>
@@ -205,19 +223,16 @@ async function remove() {
 <style scoped>
 .page { max-width: 1120px; }
 .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
-.eyebrow { margin: 0 0 4px; color: #6b8a80; font-size: .82rem; }
+.eyebrow { margin: 0 0 4px; color: var(--color-text-subtle); font-size: .82rem; }
+.breadcrumb { margin: 6px 0 0; color: var(--color-text-muted); font-size: .9rem; }
+.breadcrumb a { color: var(--color-primary-light); font-weight: 700; text-decoration: none; }
 h1 { margin: 0; }
-.form { display: grid; gap: 14px; background: #fff; padding: 18px; border-radius: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.06); }
+.form { display: grid; gap: 14px; background: var(--color-surface); padding: 18px; border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-label { display: grid; gap: 6px; font-size: .84rem; color: #4a7a6d; }
-input, select { padding: 10px 12px; border: 1px solid #d1d9d6; border-radius: 10px; font-family: inherit; }
+label { display: grid; gap: 6px; font-size: .84rem; color: var(--color-text-muted); }
+input, select { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-md); font-family: inherit; }
 .check { display: flex; align-items: center; gap: 8px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; }
-.btn { padding: 8px 18px; border-radius: 10px; border: 1px solid #d1d9d6; background: #fff; cursor: pointer; }
-.btn.primary { background: #10352a; color: #fff; border-color: #10352a; }
-.btn.danger { background: #fff5f5; color: #b91c1c; border-color: #fecaca; }
-.empty { color: #6b8a80; }
-.error { color: #b91c1c; background: #fee2e2; padding: 10px 12px; border-radius: 10px; }
 @media (max-width: 720px) {
   .form-grid { grid-template-columns: 1fr; }
   .header { flex-direction: column; }

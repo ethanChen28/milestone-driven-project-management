@@ -48,6 +48,17 @@ const priorities = computed(() => unique(tasks.value.map((task) => deriveTaskPri
 const tags = computed(() => unique(tasks.value.flatMap((task) => taskTags(task))));
 
 const filteredTasks = computed(() => sortTasks(filterTasks(tasks.value, workspace.value), workspace.value));
+const boardColumns = computed(() => {
+  const statuses = ['not_started', 'in_progress', 'done', 'blocked', 'overdue'] as const;
+  const map = new Map<string, LinkedWorkItem[]>();
+  for (const status of statuses) map.set(status, []);
+  for (const task of filteredTasks.value) {
+    const status = taskDisplayStatus(task);
+    const list = map.get(status);
+    if (list) list.push(task);
+  }
+  return map;
+});
 const metrics = computed(() => computeMetrics(filteredTasks.value));
 const groupedTasks = computed(() => groupTasks(filteredTasks.value, workspace.value.groupBy));
 const scheduleRange = computed(() => buildScheduleRange(filteredTasks.value, workspace.value.scale));
@@ -244,7 +255,7 @@ function isCollapsed(key: string) {
     <div class="header">
       <div>
         <h1>{{ label("taskWorkspace", locale) }}</h1>
-        <p class="subtle">共享筛选、看板、甘特图、时间线和分组视图</p>
+        <p class="subtle">{{ label("taskWorkspaceSubtitle", locale) }}</p>
       </div>
       <div class="header-actions">
         <button v-if="canManageTask" class="btn primary" @click="createTask">{{ label("newTask", locale) }}</button>
@@ -252,12 +263,15 @@ function isCollapsed(key: string) {
       </div>
     </div>
 
-    <div class="tab-strip">
+    <div class="tab-strip" role="tablist" aria-label="Task views">
       <button
         v-for="view in taskViews"
         :key="view"
         class="tab"
         :class="{ active: currentView === view }"
+        role="tab"
+        :aria-selected="currentView === view"
+        :tabindex="currentView === view ? 0 : -1"
         @click="setView(view)"
       >
         {{ label(view === "list" ? "taskList" : view === "board" ? "taskBoard" : view === "gantt" ? "taskGantt" : view === "timeline" ? "taskTimeline" : view === "project" ? "taskByProject" : "taskByPriority", locale) }}
@@ -359,8 +373,8 @@ function isCollapsed(key: string) {
       </div>
     </section>
 
-    <p v-if="loading" class="empty">Loading...</p>
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="empty" aria-live="polite">Loading...</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <section v-if="currentView === 'list'" class="panel">
       <div class="panel-head">
@@ -382,7 +396,7 @@ function isCollapsed(key: string) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="task in filteredTasks" :key="task.id" :data-task-id="task.id" class="task-row" @click="openTask(task.id)">
+          <tr v-for="task in filteredTasks" :key="task.id" :data-task-id="task.id" class="task-row" tabindex="0" role="link" @click="openTask(task.id)" @keyup.enter="openTask(task.id)">
             <td>
               <strong class="clickable" @click="openTask(task.id)">{{ task.title }}</strong>
               <div class="hint">{{ taskSubtitle(task) }}</div>
@@ -406,11 +420,11 @@ function isCollapsed(key: string) {
       <div v-for="status in ['not_started', 'in_progress', 'done', 'blocked', 'overdue']" :key="status" class="board-column">
         <div class="panel-head">
           <h2>{{ status }}</h2>
-          <span class="count">{{ filteredTasks.filter((task) => taskDisplayStatus(task) === status).length }}</span>
+          <span class="count">{{ boardColumns.get(status)?.length ?? 0 }}</span>
         </div>
         <div class="stack">
           <article
-            v-for="task in filteredTasks.filter((task) => taskDisplayStatus(task) === status)"
+            v-for="task in boardColumns.get(status) ?? []"
             :key="task.id"
             class="task-card"
             :class="statusBadgeClass(task)"
@@ -420,7 +434,7 @@ function isCollapsed(key: string) {
             <p>{{ taskSubtitle(task) }}</p>
             <small>{{ taskRisk(task) }}</small>
           </article>
-          <p v-if="!filteredTasks.some((task) => taskDisplayStatus(task) === status)" class="empty">{{ label("noData", locale) }}</p>
+          <p v-if="!boardColumns.get(status)?.length" class="empty">{{ label("noData", locale) }}</p>
         </div>
       </div>
     </section>
@@ -518,85 +532,80 @@ function isCollapsed(key: string) {
 .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
 h1 { margin: 0; font-size: 2rem; }
-.subtle { margin: 4px 0 0; color: #6b8a80; }
-.role-chip { padding: 6px 12px; border-radius: 999px; background: #d9f5ea; color: #0f5132; font-size: .82rem; font-weight: 700; }
+.subtle { margin: 4px 0 0; color: var(--color-text-subtle); }
+.role-chip { padding: 6px 12px; border-radius: var(--radius-full); background: #d9f5ea; color: #0f5132; font-size: .82rem; font-weight: 700; }
 .tab-strip { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
-.tab { border: 1px solid #d7dfdc; background: #fff; color: #335247; padding: 10px 14px; border-radius: 999px; cursor: pointer; }
-.tab.active { background: #10352a; color: #fff; border-color: #10352a; }
+.tab { border: 1px solid #d7dfdc; background: var(--color-surface); color: #335247; padding: 10px 14px; border-radius: var(--radius-full); cursor: pointer; }
+.tab.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
 .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.summary-card { text-align: left; border: 0; border-radius: 16px; padding: 16px; background: linear-gradient(180deg, #ffffff, #f4faf7); box-shadow: 0 1px 4px rgba(0,0,0,.06); cursor: pointer; }
+.summary-card { text-align: left; border: 0; border-radius: var(--radius-xl); padding: 16px; background: linear-gradient(180deg, #ffffff, #f4faf7); box-shadow: var(--shadow-sm); cursor: pointer; }
 .summary-card.total { background: linear-gradient(180deg, #f1f8ff, #e0efff); }
 .summary-card.deadline { background: linear-gradient(180deg, #fff7ed, #ffedd5); }
 .summary-card span { display: block; color: #5e7a71; font-size: .85rem; }
 .summary-card strong { display: block; font-size: 2rem; margin-top: 6px; }
 .summary-card small { color: #5e7a71; }
 .green { color: #16a34a; }
-.blue { color: #2563eb; }
+.blue { color: var(--color-info); }
 .gray { color: #64748b; }
 .red { color: #dc2626; }
 .amber { color: #d97706; }
 .violet { color: #7c3aed; }
-.filters, .panel, .board-column, .grouped-panel { background: #fff; border-radius: 18px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
+.filters, .panel, .board-column, .grouped-panel { background: var(--color-surface); border-radius: 18px; box-shadow: var(--shadow-sm); }
 .filters { padding: 16px; margin-bottom: 18px; }
 .filters-head, .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .filters-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
-.filters-grid input, .filters-grid select { min-width: 0; border: 1px solid #d7dfdc; border-radius: 10px; padding: 10px 12px; }
-.clear-btn { border: 0; background: none; color: #047857; cursor: pointer; }
+.filters-grid input, .filters-grid select { min-width: 0; border: 1px solid #d7dfdc; border-radius: var(--radius-md); padding: 10px 12px; }
+.clear-btn { border: 0; background: none; color: var(--color-primary-light); cursor: pointer; }
 .panel { padding: 16px; margin-bottom: 18px; }
-.count { display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; height: 2rem; border-radius: 999px; background: #edf7f2; color: #047857; font-weight: 700; }
-.btn { padding: 8px 16px; border-radius: 10px; border: 1px solid #d1d9d6; background: #fff; cursor: pointer; }
-.btn.primary { background: #10352a; color: #fff; border-color: #10352a; }
+.count { display: inline-flex; align-items: center; justify-content: center; min-width: 2rem; height: 2rem; border-radius: var(--radius-full); background: #edf7f2; color: var(--color-primary-light); font-weight: 700; }
 .btn.sm { padding: 6px 12px; font-size: .82rem; }
-.clickable { cursor: pointer; color: #047857; }
 .task-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
 .task-table th, .task-table td { text-align: left; padding: 12px 10px; vertical-align: top; border-bottom: 1px solid #edf1ef; }
 .task-row { cursor: pointer; }
-.hint { margin-top: 4px; color: #6b8a80; font-size: .84rem; }
-.risk { margin-top: 4px; color: #b45309; font-size: .8rem; font-weight: 700; }
-.status-pill { display: inline-flex; padding: 4px 10px; border-radius: 999px; font-size: .76rem; font-weight: 700; }
-.status-pill.done, .status-pill.in-progress { background: #dcfce7; color: #166534; }
-.status-pill.blocked, .status-pill.overdue { background: #fee2e2; color: #b91c1c; }
-.status-pill.near-due { background: #fef3c7; color: #92400e; }
+.hint { margin-top: 4px; color: var(--color-text-subtle); font-size: .84rem; }
+.risk { margin-top: 4px; color: var(--color-warning); font-size: .8rem; font-weight: 700; }
+.status-pill { display: inline-flex; padding: 4px 10px; border-radius: var(--radius-full); font-size: .76rem; font-weight: 700; }
+.status-pill.done, .status-pill.in-progress { background: var(--color-success-bg); color: #166534; }
+.status-pill.blocked, .status-pill.overdue { background: var(--color-danger-bg); color: var(--color-danger); }
+.status-pill.near-due { background: var(--color-warning-bg); color: #92400e; }
 .status-pill.not-started { background: #e5e7eb; color: #374151; }
 .board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .board-column { padding: 14px; }
 .stack { display: grid; gap: 10px; margin-top: 12px; }
-.task-card { padding: 12px; border-radius: 14px; background: #f7fbf8; border: 1px solid #e6f0ea; }
+.task-card { padding: 12px; border-radius: var(--radius-lg); background: var(--color-surface-hover); border: 1px solid #e6f0ea; }
 .task-card p { margin: 6px 0 0; color: #5e7a71; font-size: .84rem; }
-.task-card small { display: block; margin-top: 6px; color: #b45309; font-weight: 700; }
+.task-card small { display: block; margin-top: 6px; color: var(--color-warning); font-weight: 700; }
 .task-card.done { border-color: #86efac; }
 .task-card.in-progress { border-color: #93c5fd; }
 .task-card.blocked, .task-card.overdue { border-color: #fca5a5; background: #fff5f5; }
 .task-card.near-due { border-color: #fcd34d; }
 .gantt-legend { display: flex; gap: 16px; align-items: center; color: #5e7a71; margin: 8px 0 16px; font-size: .85rem; }
-.today-line { width: 16px; height: 2px; display: inline-block; background: #2563eb; vertical-align: middle; margin-right: 6px; }
+.today-line { width: 16px; height: 2px; display: inline-block; background: var(--color-info); vertical-align: middle; margin-right: 6px; }
 .gantt-chart { position: relative; }
 .gantt-axis { display: grid; grid-template-columns: 1fr auto 1fr; color: #5e7a71; margin-bottom: 10px; }
 .gantt-grid { position: relative; display: grid; gap: 10px; }
-.gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: #2563eb; opacity: .75; }
+.gantt-today { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--color-info); opacity: .75; }
 .gantt-group { display: grid; gap: 10px; }
-.gantt-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid #e6f0ea; background: #f7fbf8; border-radius: 12px; padding: 8px 12px; cursor: pointer; }
+.gantt-group-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid #e6f0ea; background: var(--color-surface-hover); border-radius: 12px; padding: 8px 12px; cursor: pointer; }
 .gantt-rows { display: grid; gap: 10px; }
 .gantt-row { display: grid; grid-template-columns: 280px 1fr; gap: 12px; align-items: center; }
-.gantt-label small { display: block; color: #6b8a80; margin-top: 4px; }
-.gantt-track { position: relative; min-height: 42px; border-radius: 12px; background: linear-gradient(90deg, #f2f7f4 0%, #f7fbf8 100%); overflow: hidden; }
-.gantt-bar { position: absolute; top: 6px; height: 30px; border-radius: 10px; background: #2563eb; color: #fff; font-size: .75rem; padding: 7px 10px; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gantt-label small { display: block; color: var(--color-text-subtle); margin-top: 4px; }
+.gantt-track { position: relative; min-height: 42px; border-radius: 12px; background: linear-gradient(90deg, #f2f7f4 0%, var(--color-surface-hover) 100%); overflow: hidden; }
+.gantt-bar { position: absolute; top: 6px; height: 30px; border-radius: var(--radius-md); background: var(--color-info); color: #fff; font-size: .75rem; padding: 7px 10px; box-sizing: border-box; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gantt-bar.overdue { background: #dc2626; }
 .gantt-bar.blocked { background: #d97706; }
 .milestone-strip { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0 16px; }
-.milestone-chip { padding: 10px 12px; border-radius: 12px; border: 1px solid #dfe8e3; background: #f7fbf8; }
+.milestone-chip { padding: 10px 12px; border-radius: 12px; border: 1px solid #dfe8e3; background: var(--color-surface-hover); }
 .milestone-chip strong { display: block; }
-.milestone-chip small { display: block; margin-top: 4px; color: #6b8a80; }
+.milestone-chip small { display: block; margin-top: 4px; color: var(--color-text-subtle); }
 .timeline-row { display: grid; grid-template-columns: 140px 1fr; gap: 14px; margin-top: 12px; }
 .timeline-date { padding-top: 10px; color: #334155; }
 .timeline-date strong { display: block; }
-.timeline-date small { color: #6b8a80; }
-.timeline-card { padding: 14px; border-radius: 14px; border: 1px solid #e6f0ea; background: #f7fbf8; }
+.timeline-date small { color: var(--color-text-subtle); }
+.timeline-card { padding: 14px; border-radius: var(--radius-lg); border: 1px solid #e6f0ea; background: var(--color-surface-hover); }
 .timeline-card p { margin: 6px 0 0; color: #5e7a71; }
 .grouped-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .grouped-panel { padding: 14px; }
-.empty { color: #6b8a80; }
-.error { color: #b91c1c; background: #fee2e2; padding: 10px 12px; border-radius: 10px; }
 @media (max-width: 1200px) {
   .filters-grid, .board, .grouped-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .gantt-row, .timeline-row { grid-template-columns: 1fr; }

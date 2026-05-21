@@ -2,8 +2,10 @@ import type { Locale } from "./i18n";
 
 const API_BASE = "/api/v1";
 export const ROLE_STORAGE_KEY = "goal-manager.workspaceRole";
+export const USER_STORAGE_KEY = "goal-manager.currentUser";
 
 export const workspaceRoles = ["admin", "portfolio_manager", "project_owner", "contributor", "viewer"] as const;
+export const workspaceUsers = ["tester", "alice", "bob", "carol", "frontend-user"] as const;
 export type WorkspaceRole = (typeof workspaceRoles)[number];
 
 const rolePermissions: Record<WorkspaceRole, string[]> = {
@@ -28,6 +30,25 @@ export function setCurrentRole(role: WorkspaceRole) {
   if (typeof window !== "undefined") window.localStorage.setItem(ROLE_STORAGE_KEY, role);
 }
 
+export function getCurrentUser(): string {
+  if (typeof window === "undefined") return "tester";
+  return window.localStorage.getItem(USER_STORAGE_KEY) || "tester";
+}
+
+export function setCurrentUser(user: string) {
+  if (typeof window !== "undefined") window.localStorage.setItem(USER_STORAGE_KEY, user);
+}
+
+export function dateInputToIso(value?: string): string | undefined {
+  if (!value) return undefined;
+  if (value.includes("T")) return value;
+  return new Date(`${value}T00:00:00Z`).toISOString();
+}
+
+export function isoToDateInput(value?: string): string {
+  return value?.slice(0, 10) ?? "";
+}
+
 export function can(role: WorkspaceRole, permission: string): boolean {
   return rolePermissions[role].includes(permission);
 }
@@ -36,6 +57,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   headers.set("X-Role", getCurrentRole());
+  headers.set("X-User", getCurrentUser());
   const resp = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers,
@@ -61,6 +83,7 @@ export interface Project {
   name: string;
   objective: string;
   owner: string;
+  participants?: string[];
   status: string;
   healthStatus: string;
   priority: string;
@@ -174,6 +197,51 @@ export interface ProjectDetailView {
   updates: WeeklyUpdate[];
 }
 
+export interface ProjectSpaceRollups {
+  milestoneStatusCounts: Record<string, number>;
+  workItemStatusCounts: Record<string, number>;
+  activeMilestones: number;
+  completedMilestones: number;
+  blockedMilestones: number;
+  overdueMilestones: number;
+  blockedWorkItems: number;
+  overdueWorkItems: number;
+  externalDependencies: number;
+  recentUpdateCount: number;
+}
+
+export interface ProjectRiskSignal {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  title: string;
+  severity: string;
+  message: string;
+  owner: string;
+  status: string;
+  milestoneId?: string;
+  workItemId?: string;
+  updateId?: string;
+}
+
+export interface ProjectDependency {
+  id: string;
+  sourceType: string;
+  sourceId: string;
+  title: string;
+  message: string;
+  owner: string;
+  status: string;
+  milestoneId?: string;
+  workItemId?: string;
+}
+
+export interface ProjectSpaceView extends ProjectDetailView {
+  rollups: ProjectSpaceRollups;
+  risks: ProjectRiskSignal[];
+  dependencies: ProjectDependency[];
+}
+
 export interface MilestoneDetailView {
   milestone: Milestone;
   workItems: LinkedWorkItem[];
@@ -227,6 +295,7 @@ export function label(key: string, locale: Locale): string {
     edit: { "zh-CN": "编辑", "en-US": "Edit" },
     period: { "zh-CN": "周期", "en-US": "Period" },
     roleTool: { "zh-CN": "MVP 角色调试", "en-US": "MVP Role Debug" },
+    userTool: { "zh-CN": "当前用户", "en-US": "Current User" },
     roleWarning: { "zh-CN": "非生产登录", "en-US": "Not production auth" },
     noPermission: { "zh-CN": "当前角色无权限", "en-US": "Current role cannot edit" },
     filters: { "zh-CN": "筛选", "en-US": "Filters" },
@@ -240,6 +309,7 @@ export function label(key: string, locale: Locale): string {
     gitlabContext: { "zh-CN": "GitLab 上下文", "en-US": "GitLab Context" },
     tasks: { "zh-CN": "任务", "en-US": "Tasks" },
     taskWorkspace: { "zh-CN": "任务工作台", "en-US": "Task Workspace" },
+    taskWorkspaceSubtitle: { "zh-CN": "共享筛选、看板、甘特图、时间线和分组视图", "en-US": "Shared filters, board, Gantt, timeline and grouped views" },
     taskList: { "zh-CN": "任务列表", "en-US": "Task List" },
     taskBoard: { "zh-CN": "状态看板", "en-US": "Status Board" },
     taskGantt: { "zh-CN": "进展甘特图", "en-US": "Gantt View" },

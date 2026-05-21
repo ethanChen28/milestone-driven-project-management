@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>项目空间型 A1 - Tab 导航版</title>
+  <style>
+    :root {
+      --ink: #102f28;
+      --muted: #6b8079;
+      --line: #dce6e1;
+      --soft: #f4f7f4;
+      --panel: #ffffff;
+      --green: #0f513f;
+      --mint: #2fbf88;
+      --amber: #d9822b;
+      --red: #c24135;
+      --blue: #356ac3;
+      --shadow: 0 20px 60px rgba(15, 49, 40, .08);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef3f0; color: var(--ink); font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 220px 1fr; }
+    .sidebar { background: #0c3b30; color: #d9fff0; padding: 22px 16px; }
+    .brand { margin: 0 0 28px; color: #4dd4a4; font-size: 12px; letter-spacing: .18em; text-transform: uppercase; }
+    .nav { display: grid; gap: 6px; }
+    .nav a { padding: 11px 12px; border-radius: 12px; color: #bce8d8; text-decoration: none; }
+    .nav a.active { background: rgba(255,255,255,.14); color: #fff; font-weight: 700; }
+    .main { padding: 26px 32px; }
+    .project-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+    .crumb { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+    h1 { margin: 0; font-size: 34px; letter-spacing: -.04em; }
+    .head-meta { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; background: #e7f7ef; color: #146044; font-size: 12px; font-weight: 700; }
+    .chip.warn { background: #fff2dc; color: #9a5b14; }
+    .chip.blue { background: #e8efff; color: #294d96; }
+    .actions { display: flex; gap: 8px; }
+    button { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 12px; padding: 9px 14px; font-weight: 700; cursor: default; }
+    button.primary { background: var(--green); border-color: var(--green); color: #fff; }
+    .tabs { display: flex; gap: 4px; padding: 5px; background: rgba(255,255,255,.7); border: 1px solid var(--line); border-radius: 16px; margin-bottom: 16px; width: max-content; box-shadow: 0 8px 26px rgba(15,49,40,.05); }
+    .tabs button { border: 0; background: transparent; color: var(--muted); }
+    .tabs button.active { background: #0f513f; color: #fff; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+    .card { background: var(--panel); border: 1px solid #e3ebe7; border-radius: 22px; box-shadow: var(--shadow); }
+    .card.pad { padding: 18px; }
+    .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    h2 { margin: 0; font-size: 18px; }
+    .hint { color: var(--muted); font-size: 12px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .metric { padding: 16px; border-radius: 18px; background: linear-gradient(135deg, #fff, #f6faf7); border: 1px solid #e5eee9; }
+    .metric b { display: block; font-size: 30px; letter-spacing: -.05em; }
+    .metric span { color: var(--muted); font-size: 12px; }
+    .milestone-list { display: grid; gap: 12px; }
+    .milestone { padding: 15px; border: 1px solid #e1eae5; border-radius: 18px; background: #fbfdfb; }
+    .milestone-top { display: flex; justify-content: space-between; gap: 12px; }
+    .milestone h3 { margin: 0 0 6px; font-size: 16px; }
+    .milestone p { margin: 0; color: var(--muted); font-size: 13px; }
+    .progress { height: 9px; background: #e8efeb; border-radius: 999px; overflow: hidden; margin-top: 12px; }
+    .bar { height: 100%; background: linear-gradient(90deg, #1c7c5f, #48c79a); }
+    .task-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid #edf2ef; font-size: 13px; }
+    .task-row:first-child { border-top: 0; }
+    .right-stack { display: grid; gap: 14px; }
+    .aside-title { margin: 0 0 10px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .timeline { display: grid; gap: 12px; }
+    .event { display: grid; grid-template-columns: 20px 1fr; gap: 10px; align-items: start; }
+    .dot { width: 12px; height: 12px; border-radius: 999px; background: var(--mint); margin-top: 4px; box-shadow: 0 0 0 5px #e1f7ee; }
+    .dot.warn { background: var(--amber); box-shadow: 0 0 0 5px #fff0d8; }
+    .event b { display: block; font-size: 13px; }
+    .event span { color: var(--muted); font-size: 12px; }
+    .note { border-left: 4px solid var(--amber); padding: 12px; background: #fff8eb; border-radius: 14px; color: #7a4a14; font-size: 13px; }
+    .why { margin-top: 16px; padding: 14px 16px; border-radius: 18px; background: #102f28; color: #d9fff0; }
+    .why b { color: #6ee7b7; }
+    @media (max-width: 1100px) { .shell { grid-template-columns: 1fr; } .sidebar { display: none; } .layout { grid-template-columns: 1fr; } .metrics { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <p class="brand">Goal Manager</p>
+      <nav class="nav">
+        <a>仪表盘</a><a class="active">项目</a><a>工作项</a><a>里程碑</a><a>路线图</a><a>周度回顾</a>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="project-head">
+        <div>
+          <p class="crumb">项目 / AI 项目管理系统 / 空间</p>
+          <h1>AI 项目管理系统</h1>
+          <div class="head-meta"><span class="chip">on_track</span><span class="chip blue">负责人 tester</span><span class="chip warn">截止 2026-06-30</span></div>
+        </div>
+        <div class="actions"><button>同步 GitLab</button><button class="primary">新建工作项</button></div>
+      </header>
+
+      <div class="tabs" aria-label="项目内模块">
+        <button class="active">概览</button><button>里程碑</button><button>工作项</button><button>周报</button><button>风险</button><button>依赖</button>
+      </div>
+
+      <section class="layout">
+        <div>
+          <div class="metrics">
+            <div class="metric"><b>4</b><span>里程碑</span></div>
+            <div class="metric"><b>21</b><span>工作项</span></div>
+            <div class="metric"><b>73%</b><span>计划进度</span></div>
+            <div class="metric"><b>2</b><span>高优先风险</span></div>
+          </div>
+
+          <article class="card pad">
+            <div class="section-head">
+              <h2>概览中的里程碑摘要</h2>
+              <span class="hint">只展示摘要，点击 Tab 进入完整里程碑列表</span>
+            </div>
+            <div class="milestone-list">
+              <div class="milestone">
+                <div class="milestone-top"><div><h3>需求与领域模型收敛</h3><p>8 个工作项 · 2 个阻塞 · owner: alice</p></div><span class="chip">进行中</span></div>
+                <div class="progress"><div class="bar" style="width:72%"></div></div>
+              </div>
+              <div class="milestone">
+                <div class="milestone-top"><div><h3>任务工作台改版</h3><p>7 个工作项 · 1 个风险 · owner: bob</p></div><span class="chip warn">有风险</span></div>
+                <div class="progress"><div class="bar" style="width:46%"></div></div>
+              </div>
+              <div class="milestone">
+                <div class="milestone-top"><div><h3>周报与风险闭环</h3><p>6 个工作项 · 下次评审 05-28</p></div><span class="chip blue">未开始</span></div>
+                <div class="progress"><div class="bar" style="width:12%"></div></div>
+              </div>
+            </div>
+          </article>
+
+          <div class="why"><b>这个版本的取舍：</b>Tab 是项目内主导航；概览页允许出现里程碑进度，但必须是摘要卡，不承载完整编辑和筛选，否则会和“里程碑”Tab 重复。</div>
+        </div>
+
+        <aside class="right-stack">
+          <section class="card pad">
+            <p class="aside-title">当前关注</p>
+            <div class="task-row"><span>补齐项目创建参与者逻辑</span><span class="chip">P1</span><span>今天</span></div>
+            <div class="task-row"><span>修复里程碑日期入库格式</span><span class="chip warn">P0</span><span>逾期</span></div>
+            <div class="task-row"><span>完善工作项 e2e 覆盖</span><span class="chip blue">P2</span><span>05-24</span></div>
+          </section>
+          <section class="card pad">
+            <p class="aside-title">时间线</p>
+            <div class="timeline">
+              <div class="event"><span class="dot"></span><div><b>领域模型重构已归档</b><span>2026-05-20 · 已完成</span></div></div>
+              <div class="event"><span class="dot warn"></span><div><b>任务工作台 UI 风险</b><span>2026-05-21 · 需要产品决策</span></div></div>
+              <div class="event"><span class="dot"></span><div><b>下次周度评审</b><span>2026-05-28 · 需要周报输入</span></div></div>
+            </div>
+          </section>
+          <section class="note">适合：项目负责人先看总览，再通过 Tab 深入某类对象。风险：如果概览页也做完整表格，会产生重复心智。</section>
+        </aside>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

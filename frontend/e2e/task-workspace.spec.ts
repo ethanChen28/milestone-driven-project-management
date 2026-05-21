@@ -321,7 +321,7 @@ test.describe("US7: Timeline View", () => {
 test.describe("US8: Summary Metrics Cards", () => {
   test("TC-8.1: all 7 metric cards are present", async ({ page }) => {
     await page.goto("/tasks");
-    const cards = page.locator(".summary-card");
+    const cards = page.locator(".summary-card:not(.deadline)");
     await expect(cards).toHaveCount(7);
   });
 

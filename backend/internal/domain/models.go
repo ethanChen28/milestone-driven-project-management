@@ -253,6 +253,55 @@ type ProjectDetailView struct {
 	Updates    []WeeklyUpdate   `json:"updates"`
 }
 
+type ProjectSpaceView struct {
+	Project      Project             `json:"project"`
+	Milestones   []Milestone         `json:"milestones"`
+	WorkItems    []LinkedWorkItem    `json:"workItems"`
+	Updates      []WeeklyUpdate      `json:"updates"`
+	Rollups      ProjectSpaceRollups `json:"rollups"`
+	Risks        []ProjectRiskSignal `json:"risks"`
+	Dependencies []ProjectDependency `json:"dependencies"`
+}
+
+type ProjectSpaceRollups struct {
+	MilestoneStatusCounts map[string]int `json:"milestoneStatusCounts"`
+	WorkItemStatusCounts  map[string]int `json:"workItemStatusCounts"`
+	ActiveMilestones      int            `json:"activeMilestones"`
+	CompletedMilestones   int            `json:"completedMilestones"`
+	BlockedMilestones     int            `json:"blockedMilestones"`
+	OverdueMilestones     int            `json:"overdueMilestones"`
+	BlockedWorkItems      int            `json:"blockedWorkItems"`
+	OverdueWorkItems      int            `json:"overdueWorkItems"`
+	ExternalDependencies  int            `json:"externalDependencies"`
+	RecentUpdateCount     int            `json:"recentUpdateCount"`
+}
+
+type ProjectRiskSignal struct {
+	ID          string `json:"id"`
+	SourceType  string `json:"sourceType"`
+	SourceID    string `json:"sourceId"`
+	Title       string `json:"title"`
+	Severity    string `json:"severity"`
+	Message     string `json:"message"`
+	Owner       string `json:"owner"`
+	Status      string `json:"status"`
+	MilestoneID string `json:"milestoneId,omitempty"`
+	WorkItemID  string `json:"workItemId,omitempty"`
+	UpdateID    string `json:"updateId,omitempty"`
+}
+
+type ProjectDependency struct {
+	ID          string `json:"id"`
+	SourceType  string `json:"sourceType"`
+	SourceID    string `json:"sourceId"`
+	Title       string `json:"title"`
+	Message     string `json:"message"`
+	Owner       string `json:"owner"`
+	Status      string `json:"status"`
+	MilestoneID string `json:"milestoneId,omitempty"`
+	WorkItemID  string `json:"workItemId,omitempty"`
+}
+
 type MilestoneDetailView struct {
 	Milestone Milestone        `json:"milestone"`
 	WorkItems []LinkedWorkItem `json:"workItems"`

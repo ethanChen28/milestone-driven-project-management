@@ -295,6 +295,129 @@ func TestMilestoneRiskAndWorkItemGitLabFilters(t *testing.T) {
 	}
 }
 
+func TestProjectSpaceRollupsRisksAndDependencies(t *testing.T) {
+	server := NewServer(LoadConfig())
+	project := createScopedProject(t, server, "lead", []string{"alice"})
+	past := time.Now().Add(-24 * time.Hour)
+
+	milestoneBody, _ := json.Marshal(domain.Milestone{
+		ProjectID:          project.ID,
+		Title:              "Blocked Milestone",
+		Status:             domain.MilestoneBlocked,
+		CompletionCriteria: "Done",
+		Owner:              "lead",
+		PlannedDate:        &past,
+		RiskLevel:          "high",
+		DependencySummary:  "Waiting for security review",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/milestones", bytes.NewReader(milestoneBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create milestone: %d %s", resp.Code, resp.Body.String())
+	}
+
+	workBody, _ := json.Marshal(domain.LinkedWorkItem{
+		SourceType: domain.SourceExternalDependency,
+		Title:      "Vendor dependency",
+		ProjectID:  project.ID,
+		Owner:      "alice",
+		Status:     "blocked",
+		Priority:   "P0",
+		Blocked:    true,
+		DueDate:    &past,
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/work-items", bytes.NewReader(workBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create work item: %d %s", resp.Code, resp.Body.String())
+	}
+
+	updateBody, _ := json.Marshal(domain.WeeklyUpdate{
+		ProjectID:       project.ID,
+		Author:          "alice",
+		Week:            "2026-W21",
+		Summary:         "Needs decision",
+		Risk:            "Scope risk",
+		Blockers:        "Vendor API unavailable",
+		DecisionsNeeded: "Approve fallback",
+	})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/weekly-updates", bytes.NewReader(updateBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create weekly update: %d %s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/project-space?id="+project.ID, nil)
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("project space: %d %s", resp.Code, resp.Body.String())
+	}
+	var view domain.ProjectSpaceView
+	if err := json.Unmarshal(resp.Body.Bytes(), &view); err != nil {
+		t.Fatal(err)
+	}
+	if view.Rollups.BlockedMilestones != 1 || view.Rollups.OverdueMilestones != 1 || view.Rollups.BlockedWorkItems != 1 || view.Rollups.ExternalDependencies != 1 {
+		t.Fatalf("unexpected rollups: %+v", view.Rollups)
+	}
+	if len(view.Risks) < 3 {
+		t.Fatalf("expected milestone, work item, and update risk signals, got %+v", view.Risks)
+	}
+	if len(view.Dependencies) < 2 {
+		t.Fatalf("expected milestone and work item dependencies, got %+v", view.Dependencies)
+	}
+}
+
+func TestProjectWorkItemFiltersIncludePriorityBlockedAndOverdue(t *testing.T) {
+	server := NewServer(LoadConfig())
+	project := createScopedProject(t, server, "lead", []string{"alice"})
+	past := time.Now().Add(-24 * time.Hour)
+	future := time.Now().Add(24 * time.Hour)
+
+	blockedBody, _ := json.Marshal(domain.LinkedWorkItem{SourceType: domain.SourceInternalTask, Title: "Blocked P0", ProjectID: project.ID, Owner: "alice", Status: "blocked", Priority: "P0", Blocked: true, DueDate: &past})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/work-items", bytes.NewReader(blockedBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create blocked item: %d %s", resp.Code, resp.Body.String())
+	}
+
+	normalBody, _ := json.Marshal(domain.LinkedWorkItem{SourceType: domain.SourceInternalTask, Title: "Normal P2", ProjectID: project.ID, Owner: "alice", Status: "todo", Priority: "P2", DueDate: &future})
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/work-items", bytes.NewReader(normalBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create normal item: %d %s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/work-items?projectId="+project.ID+"&priority=P0&blocked=true&overdue=true", nil)
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("filter work items: %d %s", resp.Code, resp.Body.String())
+	}
+	var items []domain.LinkedWorkItem
+	if err := json.Unmarshal(resp.Body.Bytes(), &items); err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Title != "Blocked P0" {
+		t.Fatalf("expected only blocked P0 item, got %+v", items)
+	}
+}
+
 // --- RBAC Tests ---
 
 func TestViewerCannotCreateProject(t *testing.T) {
@@ -931,6 +1054,181 @@ func TestCompletedMilestoneCannotReenterActiveState(t *testing.T) {
 	completed.Status = domain.MilestoneActive
 	if _, code := updateMilestoneWithRole(t, server, domain.RoleProjectOwner, completed); code != http.StatusBadRequest {
 		t.Fatalf("expected completed->active to be rejected, got %d", code)
+	}
+}
+
+func createScopedProject(t *testing.T, s *Server, owner string, participants []string) domain.Project {
+	t.Helper()
+	body, _ := json.Marshal(domain.Project{Name: "Scoped " + owner, Owner: owner, Participants: participants, Status: "active", HealthStatus: domain.HealthOnTrack})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	req.Header.Set("X-User", "admin")
+	resp := httptest.NewRecorder()
+	s.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create scoped project: expected 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var project domain.Project
+	if err := json.Unmarshal(resp.Body.Bytes(), &project); err != nil {
+		t.Fatal(err)
+	}
+	return project
+}
+
+func createScopedTask(t *testing.T, s *Server, projectID, owner string) domain.LinkedWorkItem {
+	t.Helper()
+	body, _ := json.Marshal(domain.LinkedWorkItem{SourceType: domain.SourceInternalTask, Title: "Scoped Task", ProjectID: projectID, Owner: owner, Status: "todo"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/work-items", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	req.Header.Set("X-User", "admin")
+	resp := httptest.NewRecorder()
+	s.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("create scoped task: expected 201, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var task domain.LinkedWorkItem
+	if err := json.Unmarshal(resp.Body.Bytes(), &task); err != nil {
+		t.Fatal(err)
+	}
+	return task
+}
+
+func TestContributorTaskOwnershipWithXUser(t *testing.T) {
+	server := NewServer(LoadConfig())
+	project := createScopedProject(t, server, "lead", []string{"alice", "bob"})
+
+	body, _ := json.Marshal(domain.LinkedWorkItem{SourceType: domain.SourceInternalTask, Title: "Alice Task", ProjectID: project.ID, Owner: "alice", Status: "todo"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/work-items", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleContributor))
+	req.Header.Set("X-User", "alice")
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected alice to create own task, got %d body=%s", resp.Code, resp.Body.String())
+	}
+	var task domain.LinkedWorkItem
+	json.Unmarshal(resp.Body.Bytes(), &task)
+
+	task.Title = "Bob Edit Attempt"
+	task.Owner = "bob"
+	updateBody, _ := json.Marshal(task)
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/work-items?id="+task.ID, bytes.NewReader(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.Header.Set("X-Role", string(domain.RoleContributor))
+	updateReq.Header.Set("X-User", "bob")
+	updateResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(updateResp, updateReq)
+	if updateResp.Code != http.StatusForbidden {
+		t.Fatalf("expected bob update forbidden, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/v1/work-items?id="+task.ID, nil)
+	deleteReq.Header.Set("X-Role", string(domain.RoleContributor))
+	deleteReq.Header.Set("X-User", "bob")
+	deleteResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(deleteResp, deleteReq)
+	if deleteResp.Code != http.StatusForbidden {
+		t.Fatalf("expected bob delete forbidden, got %d body=%s", deleteResp.Code, deleteResp.Body.String())
+	}
+}
+
+func TestProjectOwnerScopeWithXUser(t *testing.T) {
+	server := NewServer(LoadConfig())
+	aliceProject := createScopedProject(t, server, "alice", []string{"dev"})
+	bobProject := createScopedProject(t, server, "bob", []string{"dev"})
+	bobTask := createScopedTask(t, server, bobProject.ID, "dev")
+
+	bobTask.Title = "Alice should not edit"
+	body, _ := json.Marshal(bobTask)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/work-items?id="+bobTask.ID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	req.Header.Set("X-User", "alice")
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected cross-project task update forbidden, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	projectBody, _ := json.Marshal(bobProject)
+	projectReq := httptest.NewRequest(http.MethodPut, "/api/v1/projects?id="+bobProject.ID, bytes.NewReader(projectBody))
+	projectReq.Header.Set("Content-Type", "application/json")
+	projectReq.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	projectReq.Header.Set("X-User", "alice")
+	projectResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(projectResp, projectReq)
+	if projectResp.Code != http.StatusForbidden {
+		t.Fatalf("expected cross-project project update forbidden, got %d body=%s", projectResp.Code, projectResp.Body.String())
+	}
+
+	milestoneBody, _ := json.Marshal(domain.Milestone{ProjectID: aliceProject.ID, Title: "Alice Milestone", Status: domain.MilestoneNotStarted, CompletionCriteria: "Ship"})
+	milestoneReq := httptest.NewRequest(http.MethodPost, "/api/v1/milestones", bytes.NewReader(milestoneBody))
+	milestoneReq.Header.Set("Content-Type", "application/json")
+	milestoneReq.Header.Set("X-Role", string(domain.RoleProjectOwner))
+	milestoneReq.Header.Set("X-User", "alice")
+	milestoneResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(milestoneResp, milestoneReq)
+	if milestoneResp.Code != http.StatusCreated {
+		t.Fatalf("expected owned milestone create allowed, got %d body=%s", milestoneResp.Code, milestoneResp.Body.String())
+	}
+}
+
+func TestContributorWeeklyUpdateScopeWithXUser(t *testing.T) {
+	server := NewServer(LoadConfig())
+	project := createScopedProject(t, server, "lead", []string{"alice"})
+
+	body, _ := json.Marshal(domain.WeeklyUpdate{ProjectID: project.ID, Author: "alice", Week: "2026-W21", Summary: "progress"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/weekly-updates", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleContributor))
+	req.Header.Set("X-User", "alice")
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusCreated {
+		t.Fatalf("expected participant update allowed, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	bobBody, _ := json.Marshal(domain.WeeklyUpdate{ProjectID: project.ID, Author: "bob", Week: "2026-W21", Summary: "progress"})
+	bobReq := httptest.NewRequest(http.MethodPost, "/api/v1/weekly-updates", bytes.NewReader(bobBody))
+	bobReq.Header.Set("Content-Type", "application/json")
+	bobReq.Header.Set("X-Role", string(domain.RoleContributor))
+	bobReq.Header.Set("X-User", "bob")
+	bobResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(bobResp, bobReq)
+	if bobResp.Code != http.StatusForbidden {
+		t.Fatalf("expected non-participant update forbidden, got %d body=%s", bobResp.Code, bobResp.Body.String())
+	}
+}
+
+func TestContributorCannotCompleteMilestoneWithXUser(t *testing.T) {
+	server := NewServer(LoadConfig())
+	project := createScopedProject(t, server, "lead", []string{"alice"})
+	milestoneBody, _ := json.Marshal(domain.Milestone{ProjectID: project.ID, Title: "Acceptance", Status: domain.MilestoneActive, CompletionCriteria: "Review\nApprove"})
+	milestoneReq := httptest.NewRequest(http.MethodPost, "/api/v1/milestones", bytes.NewReader(milestoneBody))
+	milestoneReq.Header.Set("Content-Type", "application/json")
+	milestoneReq.Header.Set("X-Role", string(domain.RoleAdmin))
+	milestoneReq.Header.Set("X-User", "admin")
+	milestoneResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(milestoneResp, milestoneReq)
+	if milestoneResp.Code != http.StatusCreated {
+		t.Fatalf("expected milestone create, got %d body=%s", milestoneResp.Code, milestoneResp.Body.String())
+	}
+	var milestone domain.Milestone
+	json.Unmarshal(milestoneResp.Body.Bytes(), &milestone)
+
+	milestone.Status = domain.MilestoneCompleted
+	body, _ := json.Marshal(milestone)
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/milestones?id="+milestone.ID, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleContributor))
+	req.Header.Set("X-User", "alice")
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected contributor completion forbidden, got %d body=%s", resp.Code, resp.Body.String())
 	}
 }
 

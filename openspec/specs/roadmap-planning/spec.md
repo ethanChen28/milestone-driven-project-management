@@ -1,4 +1,7 @@
-## ADDED Requirements
+## Purpose
+Defines roadmap periods, roadmap items, and roadmap progress rollups.
+
+## Requirements
 
 ### Requirement: Roadmap periods and items
 The system SHALL allow portfolio managers to create, edit, archive, and view roadmap periods and outcome-oriented roadmap items within each period.

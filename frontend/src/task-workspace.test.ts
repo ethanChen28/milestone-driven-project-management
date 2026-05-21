@@ -68,6 +68,8 @@ describe("task workspace helpers", () => {
     expect(filterTasks(tasks, state)).toHaveLength(1);
     state.filters = { ...state.filters, status: "", tag: "urgent" };
     expect(filterTasks(tasks, state)).toHaveLength(1);
+    state.filters = { ...state.filters, tag: "", sourceType: "internal_task" };
+    expect(filterTasks(tasks, state).map((task) => task.id)).toEqual(["1"]);
   });
 
   it("derives priority and task status", () => {

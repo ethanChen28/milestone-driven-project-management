@@ -72,7 +72,7 @@ function clearFilters() {
       <button v-if="canSubmit" class="btn primary" @click="showForm = !showForm">{{ label("submitUpdate", locale) }}</button>
       <span v-else class="empty">{{ label('noPermission', locale) }}</span>
     </div>
-    <p v-if="error" class="error">{{ error }}</p>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <div class="filters">
       <strong>{{ label('filters', locale) }}</strong>
@@ -136,19 +136,15 @@ function clearFilters() {
 h1 { margin: 0; }
 h2 { font-size: 1.1rem; margin: 0 0 10px; }
 .section { margin-top: 24px; }
-.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #fff; padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-.filters input, .filters select { padding: 8px 10px; border: 1px solid #d1d9d6; border-radius: 8px; }
-.form { display: flex; flex-direction: column; gap: 10px; max-width: 560px; margin-bottom: 20px; background: #fff; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-.form input, .form textarea, .form select { padding: 10px 12px; border: 1px solid #d1d9d6; border-radius: 8px; font-family: inherit; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--color-surface); padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+.filters input, .filters select { padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.form { display: flex; flex-direction: column; gap: 10px; max-width: 560px; margin-bottom: 20px; background: var(--color-surface); padding: 20px; border-radius: 12px; box-shadow: var(--shadow-md); }
+.form input, .form textarea, .form select { padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: inherit; }
 .row { display: flex; gap: 10px; }
-.alert-card { padding: 12px 16px; border-radius: 10px; margin-bottom: 8px; }
-.alert-card.danger { background: #fee2e2; color: #991b1b; }
-.alert-card.warn { background: #fef3c7; color: #92400e; }
-.update-card { background: #fff; padding: 14px; border-radius: 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+.alert-card { padding: 12px 16px; border-radius: var(--radius-md); margin-bottom: 8px; }
+.alert-card.danger { background: var(--color-danger-bg); color: #991b1b; }
+.alert-card.warn { background: var(--color-warning-bg); color: #92400e; }
+.update-card { background: var(--color-surface); padding: 14px; border-radius: var(--radius-md); margin-bottom: 8px; box-shadow: var(--shadow-sm); }
 .update-header { font-size: .9rem; }
-.update-card p { margin: 6px 0 0; color: #4a7a6d; }
-.btn { padding: 8px 18px; border-radius: 8px; border: 1px solid #d1d9d6; background: #fff; cursor: pointer; }
-.btn.primary { background: #10352a; color: #fff; border-color: #10352a; }
-.empty { color: #6b8a80; }
-.error { color: #b91c1c; background: #fee2e2; padding: 10px; border-radius: 8px; }
+.update-card p { margin: 6px 0 0; color: var(--color-text-muted); }
 </style>

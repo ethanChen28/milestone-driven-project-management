@@ -2,7 +2,7 @@
 import { computed, inject, onMounted, ref, type Ref } from "vue";
 import { useRoute } from "vue-router";
 import type { Locale } from "../i18n";
-import { label, apiFetch, can, gitlabAssignee, gitlabLabels, gitlabState, type Milestone, type MilestoneDetailView, type WorkspaceRole } from "../api";
+import { dateInputToIso, isoToDateInput, label, apiFetch, can, gitlabAssignee, gitlabLabels, gitlabState, type Milestone, type MilestoneDetailView, type WorkspaceRole } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
@@ -12,11 +12,22 @@ const detail = ref<MilestoneDetailView | null>(null);
 const error = ref("");
 const editForm = ref<Partial<Milestone>>({});
 const canEdit = computed(() => can(currentRole.value, "manageMilestone"));
+const canComplete = computed(() => currentRole.value !== "contributor" && canEdit.value);
+const criteriaItems = computed(() =>
+  (detail.value?.milestone.completionCriteria ?? "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean),
+);
 
 async function load() {
   try {
     detail.value = await apiFetch<MilestoneDetailView>(`/dashboard/milestone?id=${id}`);
-    editForm.value = { ...detail.value.milestone };
+    editForm.value = {
+      ...detail.value.milestone,
+      plannedDate: isoToDateInput(detail.value.milestone.plannedDate),
+      forecastDate: isoToDateInput(detail.value.milestone.forecastDate),
+    };
     error.value = "";
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -28,7 +39,14 @@ onMounted(load);
 async function saveMilestone() {
   if (!detail.value) return;
   try {
-    await apiFetch(`/milestones?id=${detail.value.milestone.id}`, { method: "PUT", body: JSON.stringify(editForm.value) });
+    await apiFetch(`/milestones?id=${detail.value.milestone.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...editForm.value,
+        plannedDate: dateInputToIso(editForm.value.plannedDate),
+        forecastDate: dateInputToIso(editForm.value.forecastDate),
+      }),
+    });
     await load();
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -40,12 +58,17 @@ async function saveMilestone() {
   <div class="page" v-if="detail">
     <h1>{{ detail.milestone.title }}</h1>
     <p class="meta">{{ label('status', locale) }}: {{ detail.milestone.status }} &middot; {{ label('health', locale) }}: {{ detail.milestone.healthStatus }} &middot; {{ label('owner', locale) }}: {{ detail.milestone.owner }}</p>
-    <p v-if="detail.milestone.completionCriteria"><strong>{{ label('criteria', locale) }}:</strong> {{ detail.milestone.completionCriteria }}</p>
-    <p v-if="error" class="error">{{ error }}</p>
+    <div v-if="criteriaItems.length" class="criteria-card">
+      <strong>{{ label('criteria', locale) }}</strong>
+      <ul>
+        <li v-for="item in criteriaItems" :key="item"><input type="checkbox" disabled /> <span>{{ item }}</span></li>
+      </ul>
+    </div>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <form class="form lifecycle" @submit.prevent="saveMilestone">
       <div class="form-grid">
-        <label>{{ label('status', locale) }}<select v-model="editForm.status" :disabled="!canEdit"><option value="not_started">not_started</option><option value="active">active</option><option value="blocked">blocked</option><option value="completed">completed</option><option value="cancelled">cancelled</option></select></label>
+        <label>{{ label('status', locale) }}<select v-model="editForm.status" :disabled="!canEdit"><option value="not_started">not_started</option><option value="active">active</option><option value="blocked">blocked</option><option v-if="canComplete" value="completed">completed</option><option value="cancelled">cancelled</option></select></label>
         <label>{{ label('health', locale) }}<select v-model="editForm.healthStatus" :disabled="!canEdit"><option value="on_track">on_track</option><option value="at_risk">at_risk</option><option value="off_track">off_track</option><option value="done">done</option></select></label>
         <label>{{ label('progressPercent', locale) }}<input v-model.number="editForm.progressPercent" type="number" min="0" max="100" :disabled="!canEdit" /></label>
         <label>{{ label('risk', locale) }}<select v-model="editForm.riskLevel" :disabled="!canEdit"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label>
@@ -85,21 +108,22 @@ async function saveMilestone() {
 <style scoped>
 .page { max-width: 960px; }
 h1 { margin: 0; }
-.meta { color: #4a7a6d; margin: 8px 0 24px; }
+.meta { color: var(--color-text-muted); margin: 8px 0 24px; }
 .section { margin-top: 24px; }
 h2 { font-size: 1.1rem; margin: 0 0 10px; }
-.form { display: grid; gap: 12px; background: #fff; padding: 16px; border-radius: 12px; box-shadow: 0 1px 5px rgba(0,0,0,.06); }
+.criteria-card { background: var(--color-surface); padding: 14px; border-radius: var(--radius-md); margin: 0 0 16px; box-shadow: var(--shadow-sm); }
+.criteria-card ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.criteria-card li { display: flex; align-items: center; gap: 8px; color: #315b50; }
+.form { display: grid; gap: 12px; background: var(--color-surface); padding: 16px; border-radius: 12px; box-shadow: var(--shadow-sm); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-label { display: grid; gap: 5px; font-size: .82rem; color: #4a7a6d; }
-select, input, textarea { padding: 9px 10px; border: 1px solid #d1d9d6; border-radius: 8px; font-family: inherit; color: #10352a; }
-.update-card, .work-card { background: #fff; padding: 14px; border-radius: 10px; margin-bottom: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-.update-card p, .work-card p { margin: 6px 0 0; color: #4a7a6d; }
+label { display: grid; gap: 5px; font-size: .82rem; color: var(--color-text-muted); }
+select, input, textarea { padding: 9px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-family: inherit; color: var(--color-text); }
+.update-card, .work-card { background: var(--color-surface); padding: 14px; border-radius: var(--radius-md); margin-bottom: 8px; box-shadow: var(--shadow-sm); }
+.update-card p, .work-card p { margin: 6px 0 0; color: var(--color-text-muted); }
 .gitlab-meta { font-size: .84rem; }
-.badge { margin-left: 8px; display: inline-block; padding: 2px 8px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: .74rem; }
-.btn { justify-self: start; padding: 8px 18px; border-radius: 8px; border: 1px solid #d1d9d6; background: #fff; cursor: pointer; }
-.btn.primary { background: #10352a; color: #fff; border-color: #10352a; }
-.empty { color: #6b8a80; }
-.error { color: #b91c1c; background: #fee2e2; padding: 10px; border-radius: 8px; }
-a { color: #047857; font-weight: 700; }
+.badge { margin-left: 8px; display: inline-block; padding: 2px 8px; border-radius: var(--radius-full); background: #e0f2fe; color: #0369a1; font-size: .74rem; }
+.btn { justify-self: start; padding: 8px 18px; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-surface); cursor: pointer; }
+.btn.primary { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+a { color: var(--color-primary-light); font-weight: 700; }
 @media (max-width: 720px) { .form-grid { grid-template-columns: 1fr; } }
 </style>

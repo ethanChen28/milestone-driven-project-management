@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -112,6 +113,88 @@ func (s *Store) persistLocked() error {
 func (s *Store) nextID(prefix string) string {
 	s.sequence++
 	return fmt.Sprintf("%s-%03d", prefix, s.sequence)
+}
+
+func sameUser(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
+}
+
+func hasParticipant(project domain.Project, user string) bool {
+	for _, participant := range project.Participants {
+		if sameUser(participant, user) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Store) canManageProjectLocked(auth AuthContext, project domain.Project) bool {
+	if !HasPermission(auth.Role, PermManageProject) {
+		return false
+	}
+	if !auth.HasUser() || auth.Role == domain.RoleAdmin || auth.Role == domain.RolePortfolioManager {
+		return true
+	}
+	return auth.Role == domain.RoleProjectOwner && sameUser(project.Owner, auth.User)
+}
+
+func (s *Store) canManageMilestoneProjectLocked(auth AuthContext, projectID string) bool {
+	if !HasPermission(auth.Role, PermManageMilestone) {
+		return false
+	}
+	if !auth.HasUser() {
+		return true
+	}
+	if auth.Role == domain.RoleAdmin {
+		return true
+	}
+	project, ok := s.projects[projectID]
+	if !ok {
+		return false
+	}
+	return auth.Role == domain.RoleProjectOwner && sameUser(project.Owner, auth.User)
+}
+
+func (s *Store) canManageWorkItemLocked(auth AuthContext, item domain.LinkedWorkItem) bool {
+	if !HasPermission(auth.Role, PermManageWorkItem) {
+		return false
+	}
+	if !auth.HasUser() || auth.Role == domain.RoleAdmin {
+		return true
+	}
+	project, ok := s.projects[item.ProjectID]
+	if !ok {
+		return item.ProjectID == "" && item.SourceType == domain.SourceBAUTask && sameUser(item.Owner, auth.User)
+	}
+	switch auth.Role {
+	case domain.RoleProjectOwner:
+		return sameUser(project.Owner, auth.User)
+	case domain.RoleContributor:
+		return sameUser(item.Owner, auth.User) && hasParticipant(project, auth.User)
+	default:
+		return false
+	}
+}
+
+func (s *Store) canSubmitUpdateLocked(auth AuthContext, item domain.WeeklyUpdate) bool {
+	if !HasPermission(auth.Role, PermSubmitUpdate) {
+		return false
+	}
+	if !auth.HasUser() || auth.Role == domain.RoleAdmin {
+		return true
+	}
+	project, ok := s.projects[item.ProjectID]
+	if !ok {
+		return false
+	}
+	switch auth.Role {
+	case domain.RoleProjectOwner:
+		return sameUser(project.Owner, auth.User)
+	case domain.RoleContributor:
+		return sameUser(item.Author, auth.User) && hasParticipant(project, auth.User)
+	default:
+		return false
+	}
 }
 
 func (s *Store) CreateRoadmapPeriod(role domain.WorkspaceRole, period domain.RoadmapPeriod) (domain.RoadmapPeriod, error) {
@@ -252,7 +335,14 @@ func (s *Store) UpsertRoadmapItem(role domain.WorkspaceRole, id string, item dom
 }
 
 func (s *Store) CreateProject(role domain.WorkspaceRole, item domain.Project) (domain.Project, error) {
-	if !HasPermission(role, PermManageProject) {
+	return s.CreateProjectForActor(RoleAuth(role), item)
+}
+
+func (s *Store) CreateProjectForActor(auth AuthContext, item domain.Project) (domain.Project, error) {
+	if !HasPermission(auth.Role, PermManageProject) {
+		return domain.Project{}, ErrForbidden
+	}
+	if auth.HasUser() && auth.Role == domain.RoleProjectOwner && !sameUser(item.Owner, auth.User) {
 		return domain.Project{}, ErrForbidden
 	}
 	now := time.Now().UTC()
@@ -288,14 +378,21 @@ func (s *Store) GetProject(id string) (domain.Project, error) {
 }
 
 func (s *Store) UpsertProject(role domain.WorkspaceRole, id string, item domain.Project) (domain.Project, error) {
-	if !HasPermission(role, PermManageProject) {
-		return domain.Project{}, ErrForbidden
-	}
+	return s.UpsertProjectForActor(RoleAuth(role), id, item)
+}
+
+func (s *Store) UpsertProjectForActor(auth AuthContext, id string, item domain.Project) (domain.Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, ok := s.projects[id]
 	if !ok {
 		return domain.Project{}, ErrNotFound
+	}
+	if !s.canManageProjectLocked(auth, current) {
+		return domain.Project{}, ErrForbidden
+	}
+	if auth.HasUser() && auth.Role == domain.RoleProjectOwner && !sameUser(item.Owner, auth.User) {
+		return domain.Project{}, ErrForbidden
 	}
 	item.ID = id
 	item.AuditFields = current.AuditFields
@@ -308,15 +405,22 @@ func (s *Store) UpsertProject(role domain.WorkspaceRole, id string, item domain.
 }
 
 func (s *Store) CreateMilestone(role domain.WorkspaceRole, item domain.Milestone) (domain.Milestone, error) {
-	if !HasPermission(role, PermManageMilestone) {
-		return domain.Milestone{}, ErrForbidden
-	}
+	return s.CreateMilestoneForActor(RoleAuth(role), item)
+}
+
+func (s *Store) CreateMilestoneForActor(auth AuthContext, item domain.Milestone) (domain.Milestone, error) {
 	if err := validateMilestone(item); err != nil {
 		return domain.Milestone{}, err
 	}
 	now := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.canManageMilestoneProjectLocked(auth, item.ProjectID) {
+		return domain.Milestone{}, ErrForbidden
+	}
+	if auth.HasUser() && auth.Role == domain.RoleContributor && item.Status == domain.MilestoneCompleted {
+		return domain.Milestone{}, ErrForbidden
+	}
 	item.ID = s.nextID("ms")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.milestones[item.ID] = item
@@ -347,9 +451,10 @@ func (s *Store) GetMilestone(id string) (domain.Milestone, error) {
 }
 
 func (s *Store) UpsertMilestone(role domain.WorkspaceRole, id string, item domain.Milestone) (domain.Milestone, error) {
-	if !HasPermission(role, PermManageMilestone) {
-		return domain.Milestone{}, ErrForbidden
-	}
+	return s.UpsertMilestoneForActor(RoleAuth(role), id, item)
+}
+
+func (s *Store) UpsertMilestoneForActor(auth AuthContext, id string, item domain.Milestone) (domain.Milestone, error) {
 	if err := validateMilestone(item); err != nil {
 		return domain.Milestone{}, err
 	}
@@ -358,6 +463,12 @@ func (s *Store) UpsertMilestone(role domain.WorkspaceRole, id string, item domai
 	current, ok := s.milestones[id]
 	if !ok {
 		return domain.Milestone{}, ErrNotFound
+	}
+	if !s.canManageMilestoneProjectLocked(auth, current.ProjectID) || !s.canManageMilestoneProjectLocked(auth, item.ProjectID) {
+		return domain.Milestone{}, ErrForbidden
+	}
+	if auth.HasUser() && auth.Role == domain.RoleContributor && item.Status == domain.MilestoneCompleted {
+		return domain.Milestone{}, ErrForbidden
 	}
 	if err := validateMilestoneTransition(current, item); err != nil {
 		return domain.Milestone{}, err
@@ -433,15 +544,19 @@ func (s *Store) UpsertWorkstream(role domain.WorkspaceRole, id string, item doma
 }
 
 func (s *Store) CreateLinkedWorkItem(role domain.WorkspaceRole, item domain.LinkedWorkItem) (domain.LinkedWorkItem, error) {
-	if !HasPermission(role, PermManageWorkItem) {
-		return domain.LinkedWorkItem{}, ErrForbidden
-	}
+	return s.CreateLinkedWorkItemForActor(RoleAuth(role), item)
+}
+
+func (s *Store) CreateLinkedWorkItemForActor(auth AuthContext, item domain.LinkedWorkItem) (domain.LinkedWorkItem, error) {
 	if err := validateWorkItem(item); err != nil {
 		return domain.LinkedWorkItem{}, err
 	}
 	now := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.canManageWorkItemLocked(auth, item) {
+		return domain.LinkedWorkItem{}, ErrForbidden
+	}
 	item.ID = s.nextID("work")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.workItems[item.ID] = item
@@ -472,9 +587,10 @@ func (s *Store) GetWorkItem(id string) (domain.LinkedWorkItem, error) {
 }
 
 func (s *Store) UpsertWorkItem(role domain.WorkspaceRole, id string, item domain.LinkedWorkItem) (domain.LinkedWorkItem, error) {
-	if !HasPermission(role, PermManageWorkItem) {
-		return domain.LinkedWorkItem{}, ErrForbidden
-	}
+	return s.UpsertWorkItemForActor(RoleAuth(role), id, item)
+}
+
+func (s *Store) UpsertWorkItemForActor(auth AuthContext, id string, item domain.LinkedWorkItem) (domain.LinkedWorkItem, error) {
 	if err := validateWorkItem(item); err != nil {
 		return domain.LinkedWorkItem{}, err
 	}
@@ -483,6 +599,9 @@ func (s *Store) UpsertWorkItem(role domain.WorkspaceRole, id string, item domain
 	current, ok := s.workItems[id]
 	if !ok {
 		return domain.LinkedWorkItem{}, ErrNotFound
+	}
+	if !s.canManageWorkItemLocked(auth, current) || !s.canManageWorkItemLocked(auth, item) {
+		return domain.LinkedWorkItem{}, ErrForbidden
 	}
 	item.ID = id
 	item.AuditFields = current.AuditFields
@@ -495,22 +614,28 @@ func (s *Store) UpsertWorkItem(role domain.WorkspaceRole, id string, item domain
 }
 
 func (s *Store) DeleteWorkItem(role domain.WorkspaceRole, id string) error {
-	if !HasPermission(role, PermManageWorkItem) {
-		return ErrForbidden
-	}
+	return s.DeleteWorkItemForActor(RoleAuth(role), id)
+}
+
+func (s *Store) DeleteWorkItemForActor(auth AuthContext, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.workItems[id]; !ok {
+	item, ok := s.workItems[id]
+	if !ok {
 		return ErrNotFound
+	}
+	if !s.canManageWorkItemLocked(auth, item) {
+		return ErrForbidden
 	}
 	delete(s.workItems, id)
 	return s.persistLocked()
 }
 
 func (s *Store) LinkGitLabIssue(role domain.WorkspaceRole, item domain.LinkedWorkItem) (domain.LinkedWorkItem, error) {
-	if !HasPermission(role, PermManageWorkItem) {
-		return domain.LinkedWorkItem{}, ErrForbidden
-	}
+	return s.LinkGitLabIssueForActor(RoleAuth(role), item)
+}
+
+func (s *Store) LinkGitLabIssueForActor(auth AuthContext, item domain.LinkedWorkItem) (domain.LinkedWorkItem, error) {
 	if item.SourceType != domain.SourceGitLabIssue {
 		return domain.LinkedWorkItem{}, fmt.Errorf("%w: source type must be gitlab_issue", ErrInvalid)
 	}
@@ -523,6 +648,9 @@ func (s *Store) LinkGitLabIssue(role domain.WorkspaceRole, item domain.LinkedWor
 	now := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.canManageWorkItemLocked(auth, item) {
+		return domain.LinkedWorkItem{}, ErrForbidden
+	}
 	item.ID = s.nextID("work")
 	item.LastSyncedAt = &now
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
@@ -534,14 +662,18 @@ func (s *Store) LinkGitLabIssue(role domain.WorkspaceRole, item domain.LinkedWor
 }
 
 func (s *Store) UnlinkGitLabIssue(role domain.WorkspaceRole, id string) error {
-	if !HasPermission(role, PermManageWorkItem) {
-		return ErrForbidden
-	}
+	return s.UnlinkGitLabIssueForActor(RoleAuth(role), id)
+}
+
+func (s *Store) UnlinkGitLabIssueForActor(auth AuthContext, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item, ok := s.workItems[id]
 	if !ok {
 		return ErrNotFound
+	}
+	if !s.canManageWorkItemLocked(auth, item) {
+		return ErrForbidden
 	}
 	if item.SourceType != domain.SourceGitLabIssue {
 		return fmt.Errorf("%w: item is not a GitLab-linked work item", ErrInvalid)
@@ -551,7 +683,11 @@ func (s *Store) UnlinkGitLabIssue(role domain.WorkspaceRole, id string) error {
 }
 
 func (s *Store) CreateWeeklyUpdate(role domain.WorkspaceRole, item domain.WeeklyUpdate) (domain.WeeklyUpdate, error) {
-	if !HasPermission(role, PermSubmitUpdate) {
+	return s.CreateWeeklyUpdateForActor(RoleAuth(role), item)
+}
+
+func (s *Store) CreateWeeklyUpdateForActor(auth AuthContext, item domain.WeeklyUpdate) (domain.WeeklyUpdate, error) {
+	if !HasPermission(auth.Role, PermSubmitUpdate) {
 		return domain.WeeklyUpdate{}, ErrForbidden
 	}
 	if item.ProjectID == "" {
@@ -560,6 +696,9 @@ func (s *Store) CreateWeeklyUpdate(role domain.WorkspaceRole, item domain.Weekly
 	now := time.Now().UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.canSubmitUpdateLocked(auth, item) {
+		return domain.WeeklyUpdate{}, ErrForbidden
+	}
 	item.ID = s.nextID("wu")
 	item.AuditFields = domain.AuditFields{CreatedAt: now, UpdatedAt: now}
 	s.updates[item.ID] = item
@@ -590,7 +729,11 @@ func (s *Store) GetWeeklyUpdate(id string) (domain.WeeklyUpdate, error) {
 }
 
 func (s *Store) UpsertWeeklyUpdate(role domain.WorkspaceRole, id string, item domain.WeeklyUpdate) (domain.WeeklyUpdate, error) {
-	if !HasPermission(role, PermSubmitUpdate) {
+	return s.UpsertWeeklyUpdateForActor(RoleAuth(role), id, item)
+}
+
+func (s *Store) UpsertWeeklyUpdateForActor(auth AuthContext, id string, item domain.WeeklyUpdate) (domain.WeeklyUpdate, error) {
+	if !HasPermission(auth.Role, PermSubmitUpdate) {
 		return domain.WeeklyUpdate{}, ErrForbidden
 	}
 	if item.ProjectID == "" {
@@ -601,6 +744,9 @@ func (s *Store) UpsertWeeklyUpdate(role domain.WorkspaceRole, id string, item do
 	current, ok := s.updates[id]
 	if !ok {
 		return domain.WeeklyUpdate{}, ErrNotFound
+	}
+	if !s.canSubmitUpdateLocked(auth, current) || !s.canSubmitUpdateLocked(auth, item) {
+		return domain.WeeklyUpdate{}, ErrForbidden
 	}
 	item.ID = id
 	item.AuditFields = current.AuditFields
@@ -701,6 +847,31 @@ func (s *Store) ProjectDetail(id string) (domain.ProjectDetailView, error) {
 	}, nil
 }
 
+func (s *Store) ProjectSpace(id string) (domain.ProjectSpaceView, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	project, ok := s.projects[id]
+	if !ok {
+		return domain.ProjectSpaceView{}, ErrNotFound
+	}
+	milestones := s.milestonesForProject(id)
+	workItems := s.workItemsForProject(id)
+	updates := s.updatesForProject(id)
+	sort.Slice(updates, func(i, j int) bool {
+		return updates[i].AuditFields.CreatedAt.After(updates[j].AuditFields.CreatedAt)
+	})
+	return domain.ProjectSpaceView{
+		Project:      project,
+		Milestones:   milestones,
+		WorkItems:    workItems,
+		Updates:      updates,
+		Rollups:      projectSpaceRollups(milestones, workItems, updates),
+		Risks:        projectRiskSignals(milestones, workItems, updates),
+		Dependencies: projectDependencies(milestones, workItems),
+	}, nil
+}
+
 func (s *Store) MilestoneDetail(id string) (domain.MilestoneDetailView, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -714,6 +885,145 @@ func (s *Store) MilestoneDetail(id string) (domain.MilestoneDetailView, error) {
 		WorkItems: s.workItemsForMilestone(id),
 		Updates:   s.updatesForMilestone(id),
 	}, nil
+}
+
+func projectSpaceRollups(milestones []domain.Milestone, workItems []domain.LinkedWorkItem, updates []domain.WeeklyUpdate) domain.ProjectSpaceRollups {
+	now := time.Now().UTC()
+	rollups := domain.ProjectSpaceRollups{
+		MilestoneStatusCounts: map[string]int{},
+		WorkItemStatusCounts:  map[string]int{},
+		RecentUpdateCount:     len(updates),
+	}
+	for _, milestone := range milestones {
+		rollups.MilestoneStatusCounts[string(milestone.Status)]++
+		switch milestone.Status {
+		case domain.MilestoneActive:
+			rollups.ActiveMilestones++
+		case domain.MilestoneCompleted:
+			rollups.CompletedMilestones++
+		case domain.MilestoneBlocked:
+			rollups.BlockedMilestones++
+		}
+		if milestone.PlannedDate != nil && milestone.CompletedDate == nil && milestone.PlannedDate.Before(now) && milestone.Status != domain.MilestoneCompleted && milestone.Status != domain.MilestoneCancelled {
+			rollups.OverdueMilestones++
+		}
+	}
+	for _, item := range workItems {
+		rollups.WorkItemStatusCounts[item.Status]++
+		if item.Blocked || item.Status == "blocked" {
+			rollups.BlockedWorkItems++
+		}
+		if item.DueDate != nil && item.DueDate.Before(now) && item.Status != "done" {
+			rollups.OverdueWorkItems++
+		}
+		if item.SourceType == domain.SourceExternalDependency {
+			rollups.ExternalDependencies++
+		}
+	}
+	return rollups
+}
+
+func projectRiskSignals(milestones []domain.Milestone, workItems []domain.LinkedWorkItem, updates []domain.WeeklyUpdate) []domain.ProjectRiskSignal {
+	signals := make([]domain.ProjectRiskSignal, 0)
+	for _, milestone := range milestones {
+		if milestone.Status == domain.MilestoneBlocked || milestone.RiskLevel == "high" || milestone.HealthStatus == domain.HealthAtRisk || milestone.HealthStatus == domain.HealthOffTrack {
+			severity := milestone.RiskLevel
+			if severity == "" {
+				severity = string(milestone.HealthStatus)
+			}
+			signals = append(signals, domain.ProjectRiskSignal{
+				ID:          "milestone:" + milestone.ID,
+				SourceType:  "milestone",
+				SourceID:    milestone.ID,
+				Title:       milestone.Title,
+				Severity:    severity,
+				Message:     firstText(milestone.DependencySummary, milestone.RiskLevel, string(milestone.HealthStatus)),
+				Owner:       milestone.Owner,
+				Status:      string(milestone.Status),
+				MilestoneID: milestone.ID,
+			})
+		}
+	}
+	for _, item := range workItems {
+		if item.Blocked || item.Status == "blocked" || item.SourceType == domain.SourceExternalDependency {
+			severity := "medium"
+			if item.SourceType == domain.SourceExternalDependency {
+				severity = "dependency"
+			}
+			signals = append(signals, domain.ProjectRiskSignal{
+				ID:          "work-item:" + item.ID,
+				SourceType:  "work_item",
+				SourceID:    item.ID,
+				Title:       firstText(item.Title, item.ID),
+				Severity:    severity,
+				Message:     "Blocked or dependency work requires attention",
+				Owner:       item.Owner,
+				Status:      item.Status,
+				MilestoneID: item.MilestoneID,
+				WorkItemID:  item.ID,
+			})
+		}
+	}
+	for _, update := range updates {
+		if strings.TrimSpace(update.Risk) != "" || strings.TrimSpace(update.Blockers) != "" || strings.TrimSpace(update.DecisionsNeeded) != "" {
+			signals = append(signals, domain.ProjectRiskSignal{
+				ID:          "update:" + update.ID,
+				SourceType:  "weekly_update",
+				SourceID:    update.ID,
+				Title:       firstText(update.Summary, update.Week),
+				Severity:    "update",
+				Message:     firstText(update.Risk, update.Blockers, update.DecisionsNeeded),
+				Owner:       update.Author,
+				Status:      update.Week,
+				MilestoneID: update.MilestoneID,
+				UpdateID:    update.ID,
+			})
+		}
+	}
+	return signals
+}
+
+func projectDependencies(milestones []domain.Milestone, workItems []domain.LinkedWorkItem) []domain.ProjectDependency {
+	dependencies := make([]domain.ProjectDependency, 0)
+	for _, milestone := range milestones {
+		if strings.TrimSpace(milestone.DependencySummary) != "" {
+			dependencies = append(dependencies, domain.ProjectDependency{
+				ID:          "milestone:" + milestone.ID,
+				SourceType:  "milestone",
+				SourceID:    milestone.ID,
+				Title:       milestone.Title,
+				Message:     milestone.DependencySummary,
+				Owner:       milestone.Owner,
+				Status:      string(milestone.Status),
+				MilestoneID: milestone.ID,
+			})
+		}
+	}
+	for _, item := range workItems {
+		if item.SourceType == domain.SourceExternalDependency || item.Blocked || item.Status == "blocked" {
+			dependencies = append(dependencies, domain.ProjectDependency{
+				ID:          "work-item:" + item.ID,
+				SourceType:  string(item.SourceType),
+				SourceID:    item.ID,
+				Title:       firstText(item.Title, item.ID),
+				Message:     firstText(item.SourceURL, "Blocked or external dependency work item"),
+				Owner:       item.Owner,
+				Status:      item.Status,
+				MilestoneID: item.MilestoneID,
+				WorkItemID:  item.ID,
+			})
+		}
+	}
+	return dependencies
+}
+
+func firstText(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (s *Store) WeeklyReviewView() domain.WeeklyReviewView {

@@ -20,6 +20,7 @@ test.describe("Task CRUD", () => {
         name: projectName,
         objective: "UI task CRUD coverage",
         owner: "tester",
+        participants: ["alice", "tester"],
         status: "active",
         targetEndDate: iso(9),
       },
@@ -41,18 +42,24 @@ test.describe("Task CRUD", () => {
     const milestone = await milestoneResp.json();
 
     await page.goto("/tasks/new");
-    await page.locator(".role-select").selectOption("contributor");
+    await page.getByLabel("workspace role").selectOption("contributor");
+    await page.getByLabel("current user").selectOption("alice");
     await expect(page.getByLabel("标题")).toBeVisible();
     await page.getByLabel("标题").fill(taskTitle);
     await page.getByLabel("项目").selectOption(project.id);
     await page.getByLabel("里程碑").selectOption(milestone.id);
-    await page.getByLabel("负责人").fill("alice");
+    await expect(page.getByLabel("工作流")).toHaveCount(0);
+    await page.getByTestId("task-owner-select").selectOption("alice");
     await page.getByLabel("预估工作量").fill("2d");
     await page.getByLabel("来源类型").selectOption("internal_task");
     await page.getByLabel("截止日期").fill(iso(8).slice(0, 10));
     await page.getByLabel("标签").fill("ops, ui");
     await page.getByLabel("阻塞").check();
+    const postRequestPromise = page.waitForRequest((request) => request.url().includes("/api/v1/work-items") && request.method() === "POST");
     await page.getByRole("button", { name: "保存任务" }).click();
+    const postRequest = await postRequestPromise;
+    expect(postRequest.headers()["x-user"]).toBe("alice");
+    await expect(page).toHaveURL(/\/tasks\?createdId=/);
 
     const editTaskResp = await page.request.post("/api/v1/work-items", {
       data: {

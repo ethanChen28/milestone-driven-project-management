@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>项目空间混合版 - 推荐方案</title>
+  <style>
+    body { margin: 0; background: #eef3f0; color: #102f28; font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .page { max-width: 1160px; margin: 0 auto; padding: 28px; }
+    header { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; }
+    .crumb { color: #6b8079; font-size: 13px; }
+    h1 { margin: 4px 0; font-size: 42px; letter-spacing: -.05em; }
+    .meta { color: #6b8079; }
+    .tabs { display: flex; gap: 6px; padding: 6px; border: 1px solid #dce6e1; border-radius: 18px; background: #fff; margin: 20px 0; overflow-x: auto; }
+    .tabs span { padding: 9px 14px; border-radius: 999px; color: #6b8079; white-space: nowrap; }
+    .tabs .active { background: #0f513f; color: #fff; font-weight: 800; }
+    .grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+    .metric, .panel { background: #fff; border: 1px solid #e3ebe7; border-radius: 20px; box-shadow: 0 18px 50px rgba(15,49,40,.07); }
+    .metric { padding: 16px; }
+    .metric b { display: block; font-size: 34px; letter-spacing: -.06em; }
+    .metric span { color: #6b8079; font-size: 13px; }
+    .panel { padding: 16px; margin-bottom: 16px; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    .milestone { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #edf2ef; padding: 14px 0; }
+    .milestone:first-of-type { border-top: 0; }
+    .milestone strong { display: block; }
+    .milestone p, .signal p { margin: 5px 0 0; color: #6b8079; font-size: 13px; }
+    .chip { display: inline-flex; padding: 4px 9px; border-radius: 999px; background: #e7f7ef; color: #146044; font-size: 12px; font-weight: 800; }
+    .warn { background: #fff1d8; color: #9a5b14; }
+    .blue { background: #e8efff; color: #294d96; }
+    .signal { display: block; padding: 12px; border-radius: 14px; background: #f8fbf9; border: 1px solid #e6efea; margin-bottom: 8px; }
+    .rule { margin-top: 20px; padding: 16px; border-radius: 18px; background: #102f28; color: #d9fff0; line-height: 1.65; }
+    .rule b { color: #6ee7b7; }
+    @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } .metrics { grid-template-columns: repeat(2, 1fr); } }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div><div class="crumb">项目 / AI 项目管理系统</div><h1>AI 项目管理系统</h1><div class="meta">负责人 tester · on_track · 截止 2026-06-30</div></div>
+      <span class="chip">推荐混合方案</span>
+    </header>
+    <nav class="tabs"><span class="active">概览</span><span>工作项</span><span>里程碑</span><span>周报</span><span>风险</span><span>依赖</span><span>设置</span></nav>
+    <section class="grid">
+      <div>
+        <div class="metrics"><div class="metric"><b>4</b><span>里程碑</span></div><div class="metric"><b>21</b><span>工作项</span></div><div class="metric"><b>3</b><span>风险信号</span></div><div class="metric"><b>2</b><span>依赖信号</span></div></div>
+        <section class="panel"><h2>当前里程碑摘要，不承载完整管理</h2><div class="milestone"><div><strong>任务工作台改版</strong><p>owner bob · 7 个工作项 · 点击查看工作项时进入工作项 Tab 并应用里程碑过滤</p></div><span class="chip warn">at_risk</span></div><div class="milestone"><div><strong>周报风险闭环</strong><p>owner carol · 最近周报 2 条 · 完整历史在周报 Tab</p></div><span class="chip blue">not_started</span></div></section>
+      </div>
+      <aside>
+        <section class="panel"><h2>Top 风险</h2><div class="signal"><strong>Vendor API 阻塞</strong><p>来源：external_dependency 工作项</p></div><div class="signal"><strong>范围决策未定</strong><p>来源：最近周报 decisionsNeeded</p></div></section>
+        <section class="panel"><h2>最近周报</h2><div class="signal"><strong>2026-W21 · tester</strong><p>需要确认项目空间导航方案。</p></div></section>
+      </aside>
+    </section>
+    <div class="rule"><b>边界规则：</b>概览只做摘要与跳转；完整 CRUD 在对应 Tab；风险和依赖是关系视图；工作项仍保留全局工作台入口。</div>
+  </main>
+</body>
+</html>

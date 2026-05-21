@@ -2,10 +2,11 @@
 import { ref, provide, watch } from "vue";
 import { RouterLink, RouterView } from "vue-router";
 import type { Locale } from "./i18n";
-import { label, getCurrentRole, setCurrentRole, workspaceRoles, type WorkspaceRole } from "./api";
+import { label, getCurrentRole, getCurrentUser, setCurrentRole, setCurrentUser, workspaceRoles, workspaceUsers, type WorkspaceRole } from "./api";
 
 const locale = ref<Locale>("zh-CN");
 const currentRole = ref<WorkspaceRole>(getCurrentRole());
+const currentUser = ref(getCurrentUser());
 
 function toggleLocale() {
   locale.value = locale.value === "zh-CN" ? "en-US" : "zh-CN";
@@ -13,17 +14,20 @@ function toggleLocale() {
 }
 
 watch(currentRole, (role) => setCurrentRole(role), { immediate: true });
+watch(currentUser, (user) => setCurrentUser(user.trim() || "tester"), { immediate: true });
 
 provide("locale", locale);
 provide("toggleLocale", toggleLocale);
 provide("currentRole", currentRole);
+provide("currentUser", currentUser);
 
 const navItems = ["dashboard", "projects", "tasks", "milestones", "roadmap", "review"] as const;
 </script>
 
 <template>
   <div class="app">
-    <nav class="sidebar">
+    <a href="#main-content" class="skip-link">Skip to content</a>
+    <nav class="sidebar" role="navigation" aria-label="Main navigation">
       <p class="brand">Goal Manager</p>
       <RouterLink
         v-for="item in navItems"
@@ -39,13 +43,17 @@ const navItems = ["dashboard", "projects", "tasks", "milestones", "roadmap", "re
         <select v-model="currentRole" class="role-select" aria-label="workspace role">
           <option v-for="role in workspaceRoles" :key="role" :value="role">{{ role }}</option>
         </select>
+        <span>{{ label("userTool", locale) }}</span>
+        <select v-model="currentUser" class="role-select" aria-label="current user">
+          <option v-for="user in workspaceUsers" :key="user" :value="user">{{ user }}</option>
+        </select>
         <small>{{ label("roleWarning", locale) }}</small>
       </div>
       <button class="locale-btn" @click="toggleLocale">
         {{ locale === "zh-CN" ? "EN" : "中" }}
       </button>
     </nav>
-    <main class="content">
+    <main id="main-content" class="content" role="main">
       <RouterView />
     </main>
   </div>
@@ -54,6 +62,8 @@ const navItems = ["dashboard", "projects", "tasks", "milestones", "roadmap", "re
 <style>
 :root { --nav-w: 180px; --gap: 12px; }
 body { margin: 0; font-family: "Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif; background: #f5f7f6; color: #10352a; }
+.skip-link { position: absolute; top: -100%; left: 0; padding: 8px 16px; background: #10352a; color: #fff; z-index: 200; font-size: .9rem; border-radius: 0 0 8px 0; }
+.skip-link:focus { top: 0; }
 </style>
 
 <style scoped>

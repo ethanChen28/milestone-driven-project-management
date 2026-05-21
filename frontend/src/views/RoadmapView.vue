@@ -46,22 +46,15 @@ onMounted(async () => {
 <style scoped>
 .page { max-width: 960px; }
 h1 { margin: 0 0 20px; }
-.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: #fff; padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-.filters input, .filters select { padding: 8px 10px; border: 1px solid #d1d9d6; border-radius: 8px; }
-.btn { padding: 8px 18px; border-radius: 8px; border: 1px solid #d1d9d6; background: #fff; cursor: pointer; }
-.period-card { background: #fff; border-radius: 14px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; background: var(--color-surface); padding: 12px; border-radius: 12px; margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+.filters input, .filters select { padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); }
+.period-card { background: var(--color-surface); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow-md); }
 .period-header { display: flex; justify-content: space-between; align-items: center; }
 h2 { margin: 0; font-size: 1.2rem; }
-h3 { font-size: .95rem; margin: 16px 0 8px; color: #4a7a6d; }
-.dates { color: #6b8a80; font-size: .85rem; margin: 4px 0 12px; }
-.badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: .78rem; font-weight: 600; }
-.badge.active { background: #dcfce7; color: #15803d; }
-.badge.archived { background: #f3f4f6; color: #6b7280; }
-.badge.health.on_track { background: #dcfce7; color: #15803d; }
-.badge.health.at_risk { background: #fef3c7; color: #b45309; }
+h3 { font-size: .95rem; margin: 16px 0 8px; color: var(--color-text-muted); }
+.dates { color: var(--color-text-subtle); font-size: .85rem; margin: 4px 0 12px; }
 .items { display: flex; flex-direction: column; gap: 6px; }
-.ri-card { padding: 10px 14px; border-radius: 8px; background: #f0f5f3; display: flex; justify-content: space-between; }
+.ri-card { padding: 10px 14px; border-radius: var(--radius-sm); background: var(--color-surface-alt); display: flex; justify-content: space-between; }
 .projects { margin-top: 12px; }
 .ps-row { display: flex; gap: 12px; align-items: center; padding: 6px 0; font-size: .9rem; }
-.empty { color: #6b8a80; }
 </style>
