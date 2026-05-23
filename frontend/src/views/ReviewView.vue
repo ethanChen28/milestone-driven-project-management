@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref, watch, type Ref } from "vue";
 import type { Locale } from "../i18n";
-import { label, apiFetch, can, type Milestone, type Project, type WeeklyReviewView, type WorkspaceRole } from "../api";
+import PersonPicker from "../components/PersonPicker.vue";
+import { label, apiFetch, can, listUsers, type UserProfile, type Milestone, type Project, type WeeklyReviewView, type WorkspaceRole } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
 const review = ref<WeeklyReviewView | null>(null);
 const projects = ref<Project[]>([]);
+const directoryUsers = ref<UserProfile[]>([]);
 const milestones = ref<Milestone[]>([]);
 const showForm = ref(false);
 const error = ref("");
@@ -14,6 +16,9 @@ const canSubmit = computed(() => can(currentRole.value, "submitUpdate"));
 const filters = ref({ owner: "", health: "", risk: "" });
 const form = ref({ projectId: "", milestoneId: "", summary: "", progress: "", risk: "", blockers: "", decisionsNeeded: "", nextSteps: "", author: "", week: defaultWeek() });
 const projectMilestones = computed(() => milestones.value.filter((m) => !form.value.projectId || m.projectId === form.value.projectId));
+const sortedUpdates = computed(() =>
+  [...(review.value?.updates ?? [])].sort((left, right) => String(right.id).localeCompare(String(left.id))),
+);
 
 function defaultWeek() {
   const now = new Date();
@@ -38,6 +43,7 @@ async function load() {
     review.value = reviewData;
     projects.value = projectData;
     milestones.value = milestoneData;
+    directoryUsers.value = await listUsers();
     error.value = "";
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
@@ -70,7 +76,7 @@ function clearFilters() {
     <div class="header">
       <h1>{{ label("review", locale) }}</h1>
       <button v-if="canSubmit" class="btn primary" @click="showForm = !showForm">{{ label("submitUpdate", locale) }}</button>
-      <span v-else class="empty">{{ label('noPermission', locale) }}</span>
+      <span v-else class="permission-hint">{{ label('noPermission', locale) }}<small>{{ label("needContributor", locale) }}</small></span>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
@@ -93,7 +99,7 @@ function clearFilters() {
         <option v-for="m in projectMilestones" :key="m.id" :value="m.id">{{ m.title }}</option>
       </select>
       <input v-model="form.week" :placeholder="label('week', locale)" />
-      <input v-model="form.author" :placeholder="label('author', locale)" required />
+      <PersonPicker v-model="form.author" :users="directoryUsers" :placeholder="label('author', locale)" />
       <textarea v-model="form.summary" :placeholder="label('summary', locale)" rows="2" required />
       <textarea v-model="form.progress" :placeholder="label('progress', locale)" rows="2" />
       <textarea v-model="form.risk" :placeholder="label('risk', locale)" rows="2" />
@@ -120,8 +126,8 @@ function clearFilters() {
 
       <section class="section">
         <h2>{{ label('summary', locale) }}</h2>
-        <p v-if="!review.updates.length" class="empty">{{ label('noData', locale) }}</p>
-        <div v-for="u in review.updates" :key="u.id" class="update-card">
+        <p v-if="!sortedUpdates.length" class="empty">{{ label('noData', locale) }}</p>
+        <div v-for="u in sortedUpdates" :key="u.id" class="update-card">
           <div class="update-header"><strong>{{ u.week }}</strong> — {{ u.author }}</div>
           <p>{{ u.summary }}</p>
         </div>

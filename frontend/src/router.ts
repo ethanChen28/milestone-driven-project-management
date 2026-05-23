@@ -6,6 +6,7 @@ const router = createRouter({
     { path: "/", name: "dashboard", component: () => import("./views/DashboardView.vue") },
     { path: "/projects", name: "projects", component: () => import("./views/ProjectsView.vue") },
     { path: "/projects/:id", name: "project-detail", component: () => import("./views/ProjectDetailView.vue") },
+    { path: "/projects/:id/edit", name: "project-edit", component: () => import("./views/ProjectEditView.vue") },
     { path: "/tasks", name: "tasks", component: () => import("./views/TasksView.vue") },
     { path: "/tasks/new", name: "task-create", component: () => import("./views/TaskDetailView.vue") },
     { path: "/tasks/:id", name: "task-detail", component: () => import("./views/TaskDetailView.vue") },
@@ -13,6 +14,7 @@ const router = createRouter({
     { path: "/milestones/:id", name: "milestone-detail", component: () => import("./views/MilestoneDetailView.vue") },
     { path: "/roadmap", name: "roadmap", component: () => import("./views/RoadmapView.vue") },
     { path: "/review", name: "review", component: () => import("./views/ReviewView.vue") },
+    { path: "/users", name: "users", component: () => import("./views/UsersView.vue") },
   ],
 });
 

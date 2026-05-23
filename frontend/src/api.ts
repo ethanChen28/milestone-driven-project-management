@@ -3,10 +3,28 @@ import type { Locale } from "./i18n";
 const API_BASE = "/api/v1";
 export const ROLE_STORAGE_KEY = "goal-manager.workspaceRole";
 export const USER_STORAGE_KEY = "goal-manager.currentUser";
+export const TOKEN_STORAGE_KEY = "goal-manager.accessToken";
+export const AUTH_MODE_STORAGE_KEY = "goal-manager.authMode";
 
 export const workspaceRoles = ["admin", "portfolio_manager", "project_owner", "contributor", "viewer"] as const;
-export const workspaceUsers = ["tester", "alice", "bob", "carol", "frontend-user"] as const;
+export const workspaceUsers = ["admin", "tester", "alice", "bob", "carol", "frontend-user", "leader1", "leader2", "eng1", "eng2"] as const;
 export type WorkspaceRole = (typeof workspaceRoles)[number];
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  displayName: string;
+  email: string;
+  status: string;
+  roles: string[];
+}
+
+export interface LoginResponse {
+  accessToken: string;
+  tokenType: string;
+  expiresIn: number;
+  user: UserProfile;
+}
 
 const rolePermissions: Record<WorkspaceRole, string[]> = {
   admin: ["manageIntegration", "manageRoadmap", "manageProject", "manageMilestone", "manageWorkItem", "submitUpdate"],
@@ -39,6 +57,31 @@ export function setCurrentUser(user: string) {
   if (typeof window !== "undefined") window.localStorage.setItem(USER_STORAGE_KEY, user);
 }
 
+export function getAuthMode(): "dev-header" | "token" {
+  const envMode = import.meta.env.VITE_AUTH_MODE;
+  if (envMode === "token" || envMode === "dev-header") return envMode;
+  if (typeof window === "undefined") return "dev-header";
+  const stored = window.localStorage.getItem(AUTH_MODE_STORAGE_KEY);
+  return stored === "token" ? "token" : "dev-header";
+}
+
+export function isTokenAuthMode(): boolean {
+  return getAuthMode() === "token";
+}
+
+export function getAccessToken(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(TOKEN_STORAGE_KEY) || "";
+}
+
+export function setAccessToken(token: string) {
+  if (typeof window !== "undefined") window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+}
+
+export function clearAccessToken() {
+  if (typeof window !== "undefined") window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
 export function dateInputToIso(value?: string): string | undefined {
   if (!value) return undefined;
   if (value.includes("T")) return value;
@@ -56,8 +99,13 @@ export function can(role: WorkspaceRole, permission: string): boolean {
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  headers.set("X-Role", getCurrentRole());
-  headers.set("X-User", getCurrentUser());
+  const token = getAccessToken();
+  if (isTokenAuthMode() && token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  } else {
+    headers.set("X-Role", getCurrentRole());
+    headers.set("X-User", getCurrentUser());
+  }
   const resp = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers,
@@ -67,6 +115,66 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new Error(`${resp.status}: ${body}`);
   }
   return resp.json();
+}
+
+export async function login(username: string, password: string): Promise<LoginResponse> {
+  const result = await apiFetch<LoginResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password, workspaceId: "default" }),
+  });
+  setAccessToken(result.accessToken);
+  setCurrentUser(result.user.id);
+  const firstRole = result.user.roles[0];
+  if (isWorkspaceRole(firstRole)) setCurrentRole(firstRole);
+  return result;
+}
+
+export async function listUsers(): Promise<UserProfile[]> {
+  try {
+    return await apiFetch<UserProfile[]>("/users?workspaceId=default");
+  } catch {
+    return workspaceUsers.map((user) => ({ id: user, username: user, displayName: user, email: `${user}@example.local`, status: "active", roles: [] }));
+  }
+}
+
+export function fuzzyMatchUsers(users: UserProfile[], query: string): UserProfile[] {
+  if (!query.trim()) return users;
+  const lower = query.toLowerCase();
+  return users.filter(
+    (user) =>
+      user.displayName.toLowerCase().includes(lower) ||
+      user.username.toLowerCase().includes(lower) ||
+      user.email.toLowerCase().includes(lower),
+  );
+}
+
+export async function createUser(data: {
+  username: string;
+  displayName: string;
+  email: string;
+  password: string;
+  role: string;
+}): Promise<UserProfile> {
+  return apiFetch<UserProfile>("/users/manage", {
+    method: "POST",
+    body: JSON.stringify({ ...data, workspaceId: "default" }),
+  });
+}
+
+export async function updateUser(id: string, data: { displayName?: string; email?: string }): Promise<UserProfile> {
+  return apiFetch<UserProfile>(`/users/update?id=${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export async function disableUser(id: string): Promise<void> {
+  await apiFetch("/users/disable", { method: "POST", body: JSON.stringify({ id }) });
+}
+
+export async function enableUser(id: string): Promise<void> {
+  await apiFetch("/users/enable", { method: "POST", body: JSON.stringify({ id }) });
+}
+
+export async function assignRole(userId: string, role: string): Promise<void> {
+  await apiFetch("/users/role", { method: "PUT", body: JSON.stringify({ userId, role, workspaceId: "default" }) });
 }
 
 export interface PortfolioSummary {
@@ -293,11 +401,14 @@ export function label(key: string, locale: Locale): string {
     startDate: { "zh-CN": "开始日期", "en-US": "Start Date" },
     endDate: { "zh-CN": "结束日期", "en-US": "End Date" },
     edit: { "zh-CN": "编辑", "en-US": "Edit" },
+    actions: { "zh-CN": "操作", "en-US": "Actions" },
     period: { "zh-CN": "周期", "en-US": "Period" },
     roleTool: { "zh-CN": "MVP 角色调试", "en-US": "MVP Role Debug" },
     userTool: { "zh-CN": "当前用户", "en-US": "Current User" },
     roleWarning: { "zh-CN": "非生产登录", "en-US": "Not production auth" },
     noPermission: { "zh-CN": "当前角色无权限", "en-US": "Current role cannot edit" },
+    needAdmin: { "zh-CN": "需要管理员角色", "en-US": "Requires admin role" },
+    password: { "zh-CN": "密码", "en-US": "Password" },
     filters: { "zh-CN": "筛选", "en-US": "Filters" },
     clearFilters: { "zh-CN": "清除筛选", "en-US": "Clear Filters" },
     workItems: { "zh-CN": "工作项", "en-US": "Work Items" },
@@ -310,6 +421,9 @@ export function label(key: string, locale: Locale): string {
     tasks: { "zh-CN": "任务", "en-US": "Tasks" },
     taskWorkspace: { "zh-CN": "任务工作台", "en-US": "Task Workspace" },
     taskWorkspaceSubtitle: { "zh-CN": "共享筛选、看板、甘特图、时间线和分组视图", "en-US": "Shared filters, board, Gantt, timeline and grouped views" },
+    myTasks: { "zh-CN": "我的任务", "en-US": "My Tasks" },
+    needProjectOwner: { "zh-CN": "需要 Project Owner 或更高角色", "en-US": "Requires Project Owner or above" },
+    needContributor: { "zh-CN": "需要 Contributor 或更高角色", "en-US": "Requires Contributor or above" },
     taskList: { "zh-CN": "任务列表", "en-US": "Task List" },
     taskBoard: { "zh-CN": "状态看板", "en-US": "Status Board" },
     taskGantt: { "zh-CN": "进展甘特图", "en-US": "Gantt View" },
@@ -354,6 +468,17 @@ export function label(key: string, locale: Locale): string {
     currentDay: { "zh-CN": "今天", "en-US": "Today" },
     projectDeadline: { "zh-CN": "项目截止日期", "en-US": "Project Deadline" },
     milestoneTimeline: { "zh-CN": "里程碑日期", "en-US": "Milestone Dates" },
+    users: { "zh-CN": "用户管理", "en-US": "Users" },
+    createUser: { "zh-CN": "创建用户", "en-US": "Create User" },
+    editUser: { "zh-CN": "编辑用户", "en-US": "Edit User" },
+    disableUser: { "zh-CN": "禁用用户", "en-US": "Disable User" },
+    enableUser: { "zh-CN": "启用用户", "en-US": "Enable User" },
+    assignRole: { "zh-CN": "分配角色", "en-US": "Assign Role" },
+    username: { "zh-CN": "用户名", "en-US": "Username" },
+    email: { "zh-CN": "邮箱", "en-US": "Email" },
+    role: { "zh-CN": "角色", "en-US": "Role" },
+    searchUsers: { "zh-CN": "搜索用户...", "en-US": "Search users..." },
+    noMatch: { "zh-CN": "无匹配用户", "en-US": "No matching users" },
   };
   return labels[key]?.[locale] ?? key;
 }

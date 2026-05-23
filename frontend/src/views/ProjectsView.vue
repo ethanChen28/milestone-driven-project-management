@@ -2,7 +2,8 @@
 import { computed, inject, onMounted, ref, type Ref } from "vue";
 import { useRouter } from "vue-router";
 import type { Locale } from "../i18n";
-import { label, apiFetch, can, dateInputToIso, type Project, type WorkspaceRole } from "../api";
+import PersonPicker from "../components/PersonPicker.vue";
+import { label, apiFetch, can, dateInputToIso, listUsers, type UserProfile, type Project, type WorkspaceRole } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
@@ -15,6 +16,8 @@ const error = ref("");
 const canCreate = computed(() => can(currentRole.value, "manageProject"));
 const filters = ref({ owner: "", status: "", health: "", q: "" });
 const participantsText = ref("");
+const participantsArray = ref<string[]>([]);
+const directoryUsers = ref<UserProfile[]>([]);
 
 function initialForm() {
   return {
@@ -38,6 +41,14 @@ const projectStats = computed(() => ({
   risky: projects.value.filter((project) => ["at_risk", "off_track"].includes(project.healthStatus)).length,
 }));
 
+const ownerOptions = computed(() => {
+  const owners = new Set<string>();
+  directoryUsers.value.forEach((user) => owners.add(user.id));
+  projects.value.forEach((project) => { if (project.owner) owners.add(project.owner); });
+  if (filters.value.owner) owners.add(filters.value.owner);
+  return [...owners].sort();
+});
+
 function query() {
   const params = new URLSearchParams();
   Object.entries(filters.value).forEach(([key, value]) => { if (value) params.set(key, value); });
@@ -48,6 +59,7 @@ async function load() {
   loading.value = true;
   try {
     projects.value = await apiFetch<Project[]>(`/projects${query()}`);
+    directoryUsers.value = await listUsers();
     error.value = "";
   } catch (err) {
     projects.value = [];
@@ -60,10 +72,7 @@ async function load() {
 onMounted(load);
 
 function parseParticipants() {
-  const participants = participantsText.value
-    .split(",")
-    .map((participant) => participant.trim())
-    .filter(Boolean);
+  const participants = [...participantsArray.value];
   if (form.value.owner.trim()) participants.unshift(form.value.owner.trim());
   return [...new Set(participants)];
 }
@@ -129,120 +138,128 @@ function copy(key: string, zh: string, en: string) {
       </div>
     </div>
 
-    <section class="filters" aria-label="project filters">
-      <div class="filter-title">
-        <strong>{{ label('filters', locale) }}</strong>
-        <span>{{ copy("filterHint", "回车或点击筛选刷新列表", "Press Enter or filter to refresh") }}</span>
-      </div>
-      <label>
-        <span>{{ label("keyword", locale) }}</span>
-        <input v-model="filters.q" placeholder="q" @keyup.enter="load" />
-      </label>
-      <label>
-        <span>{{ label("owner", locale) }}</span>
-        <input v-model="filters.owner" :placeholder="label('owner', locale)" @keyup.enter="load" />
-      </label>
-      <label>
-        <span>{{ label("status", locale) }}</span>
-        <select v-model="filters.status">
-          <option value="">{{ label('status', locale) }}</option>
-          <option value="active">active</option>
-          <option value="done">done</option>
-          <option value="archived">archived</option>
-        </select>
-      </label>
-      <label>
-        <span>{{ label("health", locale) }}</span>
-        <select v-model="filters.health">
-          <option value="">{{ label('health', locale) }}</option>
-          <option value="on_track">on_track</option>
-          <option value="at_risk">at_risk</option>
-          <option value="off_track">off_track</option>
-        </select>
-      </label>
-      <div class="filter-actions">
-        <button class="btn" @click="load">{{ label('filters', locale) }}</button>
-        <button class="btn" @click="clearFilters">{{ label('clearFilters', locale) }}</button>
-      </div>
-    </section>
+    <template v-if="showForm">
+      <p v-if="error" class="error">{{ error }}</p>
 
-    <p v-if="error" class="error">{{ error }}</p>
-
-    <form v-if="showForm" class="form project-form" @submit.prevent="create">
-      <div class="form-heading">
-        <div>
-          <p class="eyebrow">{{ copy("newProject", "新项目", "New project") }}</p>
-          <h2>{{ label("createProject", locale) }}</h2>
+      <form class="form project-form" @submit.prevent="create">
+        <div class="form-heading">
+          <div>
+            <p class="eyebrow">{{ copy("newProject", "新项目", "New project") }}</p>
+            <h2>{{ label("createProject", locale) }}</h2>
+          </div>
+          <span class="panel-tag">{{ copy("workspaceObject", "工作区对象", "Workspace object") }}</span>
         </div>
-        <span class="panel-tag">{{ copy("workspaceObject", "工作区对象", "Workspace object") }}</span>
-      </div>
-      <div class="form-grid">
-        <label class="field span-2">
-          <span>{{ label("name", locale) }}</span>
-          <input v-model="form.name" :placeholder="label('name', locale)" required />
+        <div class="form-grid">
+          <label class="field span-2">
+            <span>{{ label("name", locale) }}</span>
+            <input v-model="form.name" :placeholder="label('name', locale)" required />
+          </label>
+          <label class="field span-2">
+            <span>{{ label("objective", locale) }}</span>
+            <textarea v-model="form.objective" :placeholder="label('objective', locale)" rows="3" />
+          </label>
+          <label class="field">
+            <span>{{ label("owner", locale) }}</span>
+            <PersonPicker v-model="form.owner" :users="directoryUsers" :placeholder="label('owner', locale)" />
+          </label>
+          <label class="field">
+            <span>{{ copy("participants", "参与者", "Participants") }}</span>
+            <PersonPicker v-model="form.participantsArray" mode="multi" :users="directoryUsers" :placeholder="copy('participantsPlaceholder', '选择参与者', 'Select participants')" />
+          </label>
+          <label class="field">
+            <span>{{ label("projectType", locale) }}</span>
+            <select v-model="form.projectType">
+              <option value="product">product</option>
+              <option value="platform">platform</option>
+              <option value="operations">operations</option>
+              <option value="research">research</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>{{ label("status", locale) }}</span>
+            <select v-model="form.status">
+              <option value="active">active</option>
+              <option value="done">done</option>
+              <option value="archived">archived</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>{{ label("health", locale) }}</span>
+            <select v-model="form.healthStatus">
+              <option value="on_track">on_track</option>
+              <option value="at_risk">at_risk</option>
+              <option value="off_track">off_track</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>{{ label("priority", locale) }}</span>
+            <select v-model="form.priority">
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+              <option value="P3">P3</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>{{ label("startDate", locale) }}</span>
+            <input v-model="form.targetStartDate" type="date" />
+          </label>
+          <label class="field">
+            <span>{{ label("endDate", locale) }}</span>
+            <input v-model="form.targetEndDate" type="date" />
+          </label>
+        </div>
+        <div class="row form-actions">
+          <button class="btn primary" type="submit">{{ label("save", locale) }}</button>
+          <button class="btn" type="button" @click="showForm = false">{{ label("cancel", locale) }}</button>
+        </div>
+      </form>
+    </template>
+
+    <template v-else>
+      <section class="filters" aria-label="project filters">
+        <div class="filter-title">
+          <strong>{{ label('filters', locale) }}</strong>
+          <span>{{ copy("filterHint", "回车或点击筛选刷新列表", "Press Enter or filter to refresh") }}</span>
+        </div>
+        <label>
+          <span>{{ label("keyword", locale) }}</span>
+          <input v-model="filters.q" placeholder="q" @keyup.enter="load" />
         </label>
-        <label class="field span-2">
-          <span>{{ label("objective", locale) }}</span>
-          <textarea v-model="form.objective" :placeholder="label('objective', locale)" rows="3" />
-        </label>
-        <label class="field">
+        <label>
           <span>{{ label("owner", locale) }}</span>
-          <input v-model="form.owner" :placeholder="label('owner', locale)" required />
-        </label>
-        <label class="field">
-          <span>{{ copy("participants", "参与者", "Participants") }}</span>
-          <input v-model="participantsText" :placeholder="copy('participantsPlaceholder', 'alice, bob', 'alice, bob')" />
-        </label>
-        <label class="field">
-          <span>{{ label("projectType", locale) }}</span>
-          <select v-model="form.projectType">
-            <option value="product">product</option>
-            <option value="platform">platform</option>
-            <option value="operations">operations</option>
-            <option value="research">research</option>
+          <select v-model="filters.owner" @change="load">
+            <option value="">{{ label('owner', locale) }}</option>
+            <option v-for="owner in ownerOptions" :key="owner" :value="owner">{{ owner }}</option>
           </select>
         </label>
-        <label class="field">
+        <label>
           <span>{{ label("status", locale) }}</span>
-          <select v-model="form.status">
+          <select v-model="filters.status">
+            <option value="">{{ label('status', locale) }}</option>
             <option value="active">active</option>
             <option value="done">done</option>
             <option value="archived">archived</option>
           </select>
         </label>
-        <label class="field">
+        <label>
           <span>{{ label("health", locale) }}</span>
-          <select v-model="form.healthStatus">
+          <select v-model="filters.health">
+            <option value="">{{ label('health', locale) }}</option>
             <option value="on_track">on_track</option>
             <option value="at_risk">at_risk</option>
             <option value="off_track">off_track</option>
           </select>
         </label>
-        <label class="field">
-          <span>{{ label("priority", locale) }}</span>
-          <select v-model="form.priority">
-            <option value="P0">P0</option>
-            <option value="P1">P1</option>
-            <option value="P2">P2</option>
-            <option value="P3">P3</option>
-          </select>
-        </label>
-        <label class="field">
-          <span>{{ label("startDate", locale) }}</span>
-          <input v-model="form.targetStartDate" type="date" />
-        </label>
-        <label class="field">
-          <span>{{ label("endDate", locale) }}</span>
-          <input v-model="form.targetEndDate" type="date" />
-        </label>
-      </div>
-      <div class="row form-actions">
-        <button class="btn primary" type="submit">{{ label("save", locale) }}</button>
-        <button class="btn" type="button" @click="showForm = false">{{ label("cancel", locale) }}</button>
-      </div>
-    </form>
+        <div class="filter-actions">
+          <button class="btn" @click="load">{{ label('filters', locale) }}</button>
+          <button class="btn" @click="clearFilters">{{ label('clearFilters', locale) }}</button>
+        </div>
+      </section>
 
-    <div class="table-shell" v-if="projects.length">
+      <p v-if="error" class="error">{{ error }}</p>
+
+      <div class="table-shell" v-if="projects.length">
       <table>
         <thead>
           <tr>
@@ -252,6 +269,7 @@ function copy(key: string, zh: string, en: string) {
             <th>{{ label('health', locale) }}</th>
             <th>{{ label('priority', locale) }}</th>
             <th>{{ label('endDate', locale) }}</th>
+            <th>{{ label('actions', locale) }}</th>
           </tr>
         </thead>
         <tbody>
@@ -268,6 +286,7 @@ function copy(key: string, zh: string, en: string) {
             <td><span class="badge health" :class="p.healthStatus">{{ p.healthStatus }}</span></td>
             <td><span class="priority-pill">{{ p.priority }}</span></td>
             <td>{{ formatDate(p.targetEndDate) }}</td>
+            <td><button class="btn sm" @click.stop="router.push({ name: 'project-edit', params: { id: p.id } })">{{ label('edit', locale) }}</button></td>
           </tr>
         </tbody>
       </table>
@@ -276,8 +295,9 @@ function copy(key: string, zh: string, en: string) {
       <p class="eyebrow">{{ loading ? "Loading" : label("noData", locale) }}</p>
       <h2>{{ copy("emptyProjectsTitle", "还没有项目", "No projects yet") }}</h2>
       <p>{{ copy("emptyProjectsBody", "先创建一个项目，再拆解里程碑和工作项。", "Create a project first, then break it down into milestones and work items.") }}</p>
-      <button v-if="canCreate" class="btn primary" @click="toggleForm">{{ label("createProject", locale) }}</button>
+      <button v-if="canCreate" class="btn" @click="toggleForm">{{ label("createProject", locale) }}</button>
     </section>
+    </template>
   </div>
 </template>
 

@@ -78,6 +78,11 @@
 .badge.health.off_track { background: var(--color-danger-bg); color: #dc2626; }
 
 .empty { color: var(--color-text-subtle); }
+.permission-hint {
+  display: inline-flex; flex-direction: column; gap: 2px;
+  color: var(--color-text-subtle); font-size: .88rem;
+}
+.permission-hint small { color: var(--color-text-subtle); font-size: .74rem; opacity: .75; }
 .error { color: var(--color-danger); background: var(--color-danger-bg); padding: 10px 12px; border-radius: var(--radius-md); }
 .clickable { cursor: pointer; color: var(--color-primary-light); }
 

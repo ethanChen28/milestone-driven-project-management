@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { inject, onMounted, ref, type Ref } from "vue";
+import { RouterLink } from "vue-router";
 import type { Locale } from "../i18n";
 import { t } from "../i18n";
 import { label, type PortfolioSummary } from "../api";
@@ -12,10 +13,10 @@ const summary = ref<PortfolioSummary>({
 const loading = ref(true);
 
 const cards = [
-  { key: "activeProjects", field: "activeProjects" as const },
-  { key: "blockedMilestones", field: "blockedMilestones" as const },
-  { key: "overdueMilestones", field: "overdueMilestones" as const },
-  { key: "workload", field: null },
+  { key: "activeProjects", field: "activeProjects" as const, to: { name: "projects" } },
+  { key: "blockedMilestones", field: "blockedMilestones" as const, to: { name: "milestones", query: { status: "blocked" } } },
+  { key: "overdueMilestones", field: "overdueMilestones" as const, to: { name: "milestones", query: { health: "off_track" } } },
+  { key: "workload", field: null as const, to: { name: "tasks" } },
 ];
 
 onMounted(async () => {
@@ -32,11 +33,11 @@ onMounted(async () => {
     <p class="subtitle">{{ t(locale, "subtitle") }}</p>
     <div v-if="loading" class="loading" aria-live="polite">{{ t(locale, "loading") }}</div>
     <div v-else class="grid">
-      <article v-for="c in cards" :key="c.key" class="stat-card">
+      <RouterLink v-for="c in cards" :key="c.key" :to="c.to" class="stat-card">
         <span>{{ label(c.key, locale) }}</span>
         <strong v-if="c.field">{{ summary[c.field] }}</strong>
         <strong v-else>{{ summary.milestoneWorkItems }} / {{ summary.bauWorkItems }}</strong>
-      </article>
+      </RouterLink>
     </div>
     <section v-if="Object.keys(summary.healthDistribution).length" class="health">
       <h3>{{ label("health", locale) }}</h3>
@@ -58,8 +59,9 @@ h1 { margin: 0; font-size: 2rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 .stat-card {
   padding: 20px; border-radius: var(--radius-xl); background: rgba(16,53,42,.92); color: #fff;
-  display: grid; gap: 8px;
+  display: grid; gap: 8px; text-decoration: none; transition: transform .12s, box-shadow .12s;
 }
+.stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,.15); }
 .stat-card strong { font-size: 1.8rem; }
 .health { margin-top: 28px; }
 .health-bars { display: flex; flex-direction: column; gap: 8px; max-width: 480px; }

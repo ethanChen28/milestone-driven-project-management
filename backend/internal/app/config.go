@@ -8,6 +8,10 @@ type Config struct {
 	RedisAddr      string
 	DefaultLng     string
 	StorageBackend string
+	AppEnv         string
+	AuthMode       string
+	TokenSecret    string
+	UserServiceURL string
 }
 
 func LoadConfig() Config {
@@ -17,6 +21,10 @@ func LoadConfig() Config {
 		RedisAddr:      getenv("REDIS_ADDR", "redis:6379"),
 		DefaultLng:     getenv("APP_DEFAULT_LOCALE", "zh-CN"),
 		StorageBackend: getenv("STORAGE_BACKEND", "memory"),
+		AppEnv:         getenv("APP_ENV", "development"),
+		AuthMode:       getenv("AUTH_MODE", "dev-header"),
+		TokenSecret:    getenv("AUTH_TOKEN_SECRET", "dev-secret-change-me"),
+		UserServiceURL: getenv("USER_SERVICE_URL", ""),
 	}
 }
 

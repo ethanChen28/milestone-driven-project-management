@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, inject, onMounted, ref, type Ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import type { Locale } from "../i18n";
 import { dateInputToIso, isoToDateInput, label, apiFetch, can, gitlabAssignee, gitlabLabels, gitlabState, type Milestone, type MilestoneDetailView, type WorkspaceRole } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
 const route = useRoute();
+const router = useRouter();
 const id = route.params.id as string;
 const detail = ref<MilestoneDetailView | null>(null);
 const error = ref("");
@@ -36,6 +37,12 @@ async function load() {
 
 onMounted(load);
 
+function createTask() {
+  const milestone = detail.value?.milestone;
+  if (!milestone) return;
+  router.push({ name: "task-create", query: { projectId: milestone.projectId, milestoneId: milestone.id } });
+}
+
 async function saveMilestone() {
   if (!detail.value) return;
   try {
@@ -56,11 +63,20 @@ async function saveMilestone() {
 
 <template>
   <div class="page" v-if="detail">
-    <h1>{{ detail.milestone.title }}</h1>
+    <div class="page-header">
+      <h1>{{ detail.milestone.title }}</h1>
+      <button class="btn primary" @click="createTask">{{ label('newTask', locale) }}</button>
+    </div>
     <p class="meta">{{ label('status', locale) }}: {{ detail.milestone.status }} &middot; {{ label('health', locale) }}: {{ detail.milestone.healthStatus }} &middot; {{ label('owner', locale) }}: {{ detail.milestone.owner }}</p>
+    <div class="progress-bar-container">
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" :class="detail.milestone.healthStatus" :style="{ width: (detail.milestone.progressPercent || 0) + '%' }"></div>
+      </div>
+      <span class="progress-label">{{ detail.milestone.progressPercent || 0 }}%</span>
+    </div>
     <div v-if="criteriaItems.length" class="criteria-card">
       <strong>{{ label('criteria', locale) }}</strong>
-      <ul>
+      <ul class="criteria-list">
         <li v-for="item in criteriaItems" :key="item"><input type="checkbox" disabled /> <span>{{ item }}</span></li>
       </ul>
     </div>
@@ -107,9 +123,19 @@ async function saveMilestone() {
 
 <style scoped>
 .page { max-width: 960px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; }
 h1 { margin: 0; }
-.meta { color: var(--color-text-muted); margin: 8px 0 24px; }
+.meta { color: var(--color-text-muted); margin: 8px 0 12px; }
+.progress-bar-container { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+.progress-bar-track { flex: 1; height: 10px; border-radius: 5px; background: #e0ebe6; overflow: hidden; }
+.progress-bar-fill { height: 100%; border-radius: 5px; transition: width .3s ease; }
+.progress-bar-fill.on_track, .progress-bar-fill.done { background: #22c55e; }
+.progress-bar-fill.at_risk { background: #f59e0b; }
+.progress-bar-fill.off_track { background: #ef4444; }
+.progress-label { font-size: .85rem; font-weight: 700; color: var(--color-text-muted); min-width: 40px; }
 .section { margin-top: 24px; }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.section-header h2 { margin: 0; }
 h2 { font-size: 1.1rem; margin: 0 0 10px; }
 .criteria-card { background: var(--color-surface); padding: 14px; border-radius: var(--radius-md); margin: 0 0 16px; box-shadow: var(--shadow-sm); }
 .criteria-card ul { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; }

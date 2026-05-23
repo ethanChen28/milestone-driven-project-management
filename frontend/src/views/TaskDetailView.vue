@@ -2,7 +2,8 @@
 import { computed, inject, onMounted, ref, watch, type Ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Locale } from "../i18n";
-import { apiFetch, can, label, type LinkedWorkItem, type Milestone, type Project, type WorkspaceRole } from "../api";
+import PersonPicker from "../components/PersonPicker.vue";
+import { apiFetch, can, label, listUsers, type UserProfile, type LinkedWorkItem, type Milestone, type Project, type WorkspaceRole } from "../api";
 
 type TaskForm = {
   sourceType: string;
@@ -37,6 +38,7 @@ const deleting = ref(false);
 const error = ref("");
 const detail = ref<LinkedWorkItem | null>(null);
 const projects = ref<Project[]>([]);
+const directoryUsers = ref<UserProfile[]>([]);
 const milestones = ref<Milestone[]>([]);
 const canManageTask = computed(() => can(currentRole.value, "manageWorkItem"));
 const form = ref<TaskForm>({
@@ -127,6 +129,7 @@ async function load() {
     ]);
     projects.value = projectData;
     milestones.value = milestoneData;
+    directoryUsers.value = await listUsers();
     if (!isCreate) {
       detail.value = await apiFetch<LinkedWorkItem>(`/work-items?id=${id}`);
       form.value = mapItemToForm(detail.value);
@@ -198,8 +201,7 @@ async function remove() {
         <label>{{ label("title", locale) }}<input v-model="form.title" required /></label>
         <label>{{ label("project", locale) }}<select v-model="form.projectId" required><option value="">{{ label("project", locale) }}</option><option v-for="project in projects" :key="project.id" :value="project.id">{{ project.name }}</option></select></label>
         <label>{{ label("milestone", locale) }}<select v-model="form.milestoneId"><option value="">{{ label("milestone", locale) }}</option><option v-for="milestone in filteredMilestones" :key="milestone.id" :value="milestone.id">{{ milestone.title }}</option></select></label>
-        <label v-if="ownerOptions.length">{{ label("ownerTeam", locale) }}<select v-model="form.owner" required data-testid="task-owner-select"><option value="">{{ label("ownerTeam", locale) }}</option><option v-for="owner in ownerOptions" :key="owner" :value="owner">{{ owner }}</option></select></label>
-        <label v-else>{{ label("ownerTeam", locale) }}<input v-model="form.owner" required /></label>
+        <label>{{ label("ownerTeam", locale) }}<PersonPicker v-model="form.owner" :users="directoryUsers" :placeholder="label('ownerTeam', locale)" /></label>
         <label>{{ label("status", locale) }}<select v-model="form.status"><option value="todo">todo</option><option value="in_progress">in_progress</option><option value="done">done</option><option value="cancelled">cancelled</option></select></label>
         <label>{{ label("priorityBucket", locale) }}<select v-model="form.priority"><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></select></label>
         <label>{{ label("estimate", locale) }}<input v-model="form.estimate" placeholder="1d" /></label>

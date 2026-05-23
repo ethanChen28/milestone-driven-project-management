@@ -25,6 +25,7 @@ import {
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
+const currentUser = inject<Ref<string>>("currentUser")!;
 const route = useRoute();
 const router = useRouter();
 
@@ -36,6 +37,7 @@ const collapsedGroups = ref<string[]>([]);
 const loading = ref(false);
 const error = ref("");
 const syncingRoute = ref(false);
+const isMyTasks = ref(false);
 const canManageTask = computed(() => can(currentRole.value, "manageWorkItem"));
 
 const projectNames = computed(() => Object.fromEntries(projects.value.map((project) => [project.id, project.name])));
@@ -47,7 +49,11 @@ const sourceTypes = computed(() => unique(tasks.value.map((task) => task.sourceT
 const priorities = computed(() => unique(tasks.value.map((task) => deriveTaskPriority(task))));
 const tags = computed(() => unique(tasks.value.flatMap((task) => taskTags(task))));
 
-const filteredTasks = computed(() => sortTasks(filterTasks(tasks.value, workspace.value), workspace.value));
+const filteredTasks = computed(() => {
+  let result = sortTasks(filterTasks(tasks.value, workspace.value), workspace.value);
+  if (isMyTasks.value) result = result.filter((task) => task.owner === currentUser.value);
+  return result;
+});
 const boardColumns = computed(() => {
   const statuses = ['not_started', 'in_progress', 'done', 'blocked', 'overdue'] as const;
   const map = new Map<string, LinkedWorkItem[]>();
@@ -147,6 +153,11 @@ function clearFilters() {
   workspace.value.sortBy = "dueDate";
   workspace.value.sortDir = "asc";
   workspace.value.scale = "month";
+  isMyTasks.value = false;
+}
+
+function toggleMyTasks() {
+  isMyTasks.value = !isMyTasks.value;
 }
 
 function openTask(id: string) {
@@ -258,6 +269,7 @@ function isCollapsed(key: string) {
         <p class="subtle">{{ label("taskWorkspaceSubtitle", locale) }}</p>
       </div>
       <div class="header-actions">
+        <button class="btn" :class="{ active: isMyTasks }" @click="toggleMyTasks">{{ label("myTasks", locale) }}</button>
         <button v-if="canManageTask" class="btn primary" @click="createTask">{{ label("newTask", locale) }}</button>
         <span class="role-chip">{{ currentRole }}</span>
       </div>
@@ -537,6 +549,7 @@ h1 { margin: 0; font-size: 2rem; }
 .tab-strip { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0; }
 .tab { border: 1px solid #d7dfdc; background: var(--color-surface); color: #335247; padding: 10px 14px; border-radius: var(--radius-full); cursor: pointer; }
 .tab.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+.btn.active { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
 .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .summary-card { text-align: left; border: 0; border-radius: var(--radius-xl); padding: 16px; background: linear-gradient(180deg, #ffffff, #f4faf7); box-shadow: var(--shadow-sm); cursor: pointer; }
 .summary-card.total { background: linear-gradient(180deg, #f1f8ff, #e0efff); }

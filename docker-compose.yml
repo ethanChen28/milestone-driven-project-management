@@ -26,11 +26,29 @@ services:
       REDIS_ADDR: redis:6379
       APP_DEFAULT_LOCALE: zh-CN
       STORAGE_BACKEND: mysql
+      AUTH_MODE: dev-header
+      AUTH_TOKEN_SECRET: dev-secret-change-me
+      USER_SERVICE_URL: http://user-service:8090
     depends_on:
       - mysql
       - redis
+      - user-service
     ports:
       - "8080:8080"
+
+  user-service:
+    build:
+      context: ./user-service
+    environment:
+      USER_SERVICE_LISTEN_ADDR: ":8090"
+      USER_MYSQL_DSN: goal:goal@tcp(mysql:3306)/goal_manager?parseTime=true
+      APP_ENV: development
+      AUTH_MODE: dev-token
+      AUTH_TOKEN_SECRET: dev-secret-change-me
+    depends_on:
+      - mysql
+    ports:
+      - "8090:8090"
 
   frontend:
     build:

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"goal-manager/backend/internal/domain"
+	"goal-manager/backend/internal/service"
 )
 
 func createProjectWithRole(s *Server, role domain.WorkspaceRole) domain.Project {
@@ -1253,5 +1254,107 @@ func TestMilestoneHealthAndProgressUpdateDoesNotChangeStatus(t *testing.T) {
 	}
 	if updated.Status != domain.MilestoneNotStarted || updated.HealthStatus != domain.HealthAtRisk || updated.ProgressPercent != 45 {
 		t.Fatalf("health/progress update changed unexpected fields: %+v", updated)
+	}
+}
+
+func testToken(t *testing.T, secret, sub string, role domain.WorkspaceRole) string {
+	t.Helper()
+	now := time.Now().UTC()
+	token, err := service.IssueIdentityToken(secret, service.IdentityClaims{Sub: sub, WorkspaceID: "default", Roles: []string{string(role)}, DisplayName: sub, Email: sub + "@example.local", Provider: "builtin", Version: 1, Iat: now.Unix(), Exp: now.Add(time.Hour).Unix()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return token
+}
+
+func TestTokenAuthAllowsTrustedProjectOwner(t *testing.T) {
+	secret := "test-secret"
+	server := NewServer(Config{StorageBackend: "memory", AuthMode: "token", TokenSecret: secret, AppEnv: "development"})
+	adminToken := testToken(t, secret, "tester", domain.RoleAdmin)
+	ownerToken := testToken(t, secret, "alice", domain.RoleProjectOwner)
+
+	projectBody, _ := json.Marshal(domain.Project{Name: "Token Project", Owner: "alice", Participants: []string{"alice"}, Status: "active", HealthStatus: domain.HealthOnTrack})
+	projectReq := httptest.NewRequest(http.MethodPost, "/api/v1/projects", bytes.NewReader(projectBody))
+	projectReq.Header.Set("Content-Type", "application/json")
+	projectReq.Header.Set("Authorization", "Bearer "+adminToken)
+	projectResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(projectResp, projectReq)
+	if projectResp.Code != http.StatusCreated {
+		t.Fatalf("expected admin token to create project, got %d body=%s", projectResp.Code, projectResp.Body.String())
+	}
+	var project domain.Project
+	json.Unmarshal(projectResp.Body.Bytes(), &project)
+
+	project.Objective = "updated by trusted owner"
+	updateBody, _ := json.Marshal(project)
+	updateReq := httptest.NewRequest(http.MethodPut, "/api/v1/projects?id="+project.ID, bytes.NewReader(updateBody))
+	updateReq.Header.Set("Content-Type", "application/json")
+	updateReq.Header.Set("Authorization", "Bearer "+ownerToken)
+	updateReq.Header.Set("X-User", "mallory")
+	updateReq.Header.Set("X-Role", string(domain.RoleAdmin))
+	updateResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(updateResp, updateReq)
+	if updateResp.Code != http.StatusOK {
+		t.Fatalf("expected trusted owner token to win over spoofed headers, got %d body=%s", updateResp.Code, updateResp.Body.String())
+	}
+}
+
+func TestTokenAuthRejectsMissingOrInvalidTokenMutation(t *testing.T) {
+	server := NewServer(Config{StorageBackend: "memory", AuthMode: "token", TokenSecret: "test-secret", AppEnv: "development"})
+	body, _ := json.Marshal(domain.Project{Name: "No Token", Owner: "alice", Status: "active"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/projects", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", string(domain.RoleAdmin))
+	req.Header.Set("X-User", "alice")
+	resp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected spoofed headers rejected in token mode, got %d body=%s", resp.Code, resp.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/projects", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer invalid")
+	resp = httptest.NewRecorder()
+	server.Handler().ServeHTTP(resp, req)
+	if resp.Code != http.StatusForbidden {
+		t.Fatalf("expected invalid token rejected, got %d body=%s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestUserDirectoryAndIdentityMigrationReport(t *testing.T) {
+	server := NewServer(Config{StorageBackend: "memory", AuthMode: "dev-header", AppEnv: "development"})
+	project := createScopedProject(t, server, "alice", []string{"alice", "unknown-user"})
+	_ = project
+
+	usersReq := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	usersResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(usersResp, usersReq)
+	if usersResp.Code != http.StatusOK {
+		t.Fatalf("expected users endpoint 200, got %d", usersResp.Code)
+	}
+	var users []service.UserProfile
+	json.Unmarshal(usersResp.Body.Bytes(), &users)
+	if len(users) == 0 {
+		t.Fatal("expected seeded user directory")
+	}
+
+	reportReq := httptest.NewRequest(http.MethodGet, "/api/v1/identity-migration/report", nil)
+	reportResp := httptest.NewRecorder()
+	server.Handler().ServeHTTP(reportResp, reportReq)
+	if reportResp.Code != http.StatusOK {
+		t.Fatalf("expected migration report 200, got %d", reportResp.Code)
+	}
+	var report service.IdentityMigrationReport
+	json.Unmarshal(reportResp.Body.Bytes(), &report)
+	if report.UnresolvedReferences == 0 {
+		t.Fatalf("expected unresolved identity reference for unknown-user, got %+v", report)
+	}
+}
+
+func TestProductionRejectsDevHeaderAuthMode(t *testing.T) {
+	_, err := NewServerE(Config{StorageBackend: "memory", AuthMode: "dev-header", AppEnv: "production"})
+	if err == nil {
+		t.Fatal("expected production dev-header configuration to fail")
 	}
 }

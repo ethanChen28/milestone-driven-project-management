@@ -2,7 +2,8 @@
 import { computed, inject, onMounted, ref, type Ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { Locale } from "../i18n";
-import { dateInputToIso, label, apiFetch, can, gitlabAssignee, gitlabLabels, gitlabState, type LinkedWorkItem, type Milestone, type ProjectDependency, type ProjectRiskSignal, type ProjectSpaceView, type ProjectSpaceRollups, type WorkspaceRole } from "../api";
+import PersonPicker from "../components/PersonPicker.vue";
+import { dateInputToIso, label, apiFetch, can, gitlabAssignee, gitlabLabels, gitlabState, listUsers, type UserProfile, type LinkedWorkItem, type Milestone, type ProjectDependency, type ProjectRiskSignal, type ProjectSpaceView, type ProjectSpaceRollups, type WorkspaceRole } from "../api";
 import { displayProjectWorkStatus, filterProjectWorkItems, groupProjectWorkItems, normalizeProjectSpaceTab, projectSpaceTabs, projectWorkBreadcrumb, type ProjectWorkGroup } from "../project-space";
 
 const locale = inject<Ref<Locale>>("locale")!;
@@ -11,6 +12,7 @@ const route = useRoute();
 const router = useRouter();
 const id = route.params.id as string;
 const detail = ref<ProjectSpaceView | null>(null);
+const directoryUsers = ref<UserProfile[]>([]);
 const showMilestoneForm = ref(false);
 const error = ref("");
 const msForm = ref({ title: "", owner: "", completionCriteria: "", status: "not_started", healthStatus: "on_track", plannedDate: "", riskLevel: "low" });
@@ -44,7 +46,7 @@ const tabLabels: Record<string, { zh: string; en: string }> = {
 };
 
 async function load() {
-  try { detail.value = await apiFetch<ProjectSpaceView>(`/project-space?id=${id}`); error.value = ""; } catch (err) { error.value = err instanceof Error ? err.message : String(err); }
+  try { detail.value = await apiFetch<ProjectSpaceView>(`/project-space?id=${id}`); directoryUsers.value = await listUsers(); error.value = ""; } catch (err) { error.value = err instanceof Error ? err.message : String(err); }
 }
 
 onMounted(load);
@@ -128,6 +130,7 @@ function cleanQuery(query: Record<string, unknown>) {
         <div class="health-actions">
           <button v-for="h in ['on_track','at_risk','off_track']" :key="h" class="btn sm" :class="h" :disabled="!canManageProject" @click="updateHealth(h)">{{ h }}</button>
         </div>
+        <RouterLink v-if="canManageProject" class="btn primary" :to="{ name: 'project-edit', params: { id } }">{{ label('edit', locale) }}</RouterLink>
         <button v-if="canManageMilestone" class="btn primary" @click="openCreateMilestone">{{ label('createMilestone', locale) }}</button>
       </div>
     </header>
@@ -192,7 +195,7 @@ function cleanQuery(query: Record<string, unknown>) {
 
     <section v-else-if="activeTab === 'milestones'" class="section">
       <div class="section-header"><h2>{{ label('milestones', locale) }}</h2><button v-if="canManageMilestone" class="btn primary" @click="showMilestoneForm = !showMilestoneForm">{{ label('createMilestone', locale) }}</button><span v-else class="empty">{{ label('noPermission', locale) }}</span></div>
-      <form v-if="showMilestoneForm" class="form" @submit.prevent="createMilestone"><input v-model="msForm.title" :placeholder="label('title', locale)" required /><input v-model="msForm.owner" :placeholder="label('owner', locale)" required /><input v-model="msForm.completionCriteria" :placeholder="label('criteria', locale)" required /><select v-model="msForm.riskLevel"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select><input v-model="msForm.plannedDate" type="date" :placeholder="label('plannedDate', locale)" /><div class="row"><button class="btn primary" type="submit">{{ label('save', locale) }}</button><button class="btn" type="button" @click="showMilestoneForm = false">{{ label('cancel', locale) }}</button></div></form>
+      <form v-if="showMilestoneForm" class="form" @submit.prevent="createMilestone"><input v-model="msForm.title" :placeholder="label('title', locale)" required /><PersonPicker v-model="msForm.owner" :users="directoryUsers" :placeholder="label('owner', locale)" /><input v-model="msForm.completionCriteria" :placeholder="label('criteria', locale)" required /><select v-model="msForm.riskLevel"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select><input v-model="msForm.plannedDate" type="date" :placeholder="label('plannedDate', locale)" /><div class="row"><button class="btn primary" type="submit">{{ label('save', locale) }}</button><button class="btn" type="button" @click="showMilestoneForm = false">{{ label('cancel', locale) }}</button></div></form>
       <table v-if="detail.milestones.length"><thead><tr><th>{{ label('title', locale) }}</th><th>{{ label('status', locale) }}</th><th>{{ label('health', locale) }}</th><th>{{ label('owner', locale) }}</th><th>{{ label('plannedDate', locale) }}</th><th>{{ label('edit', locale) }}</th></tr></thead><tbody><tr v-for="m in detail.milestones" :key="m.id"><td><button class="link-title" @click="goMilestone(m.id)">{{ m.title }}</button></td><td>{{ m.status }}</td><td>{{ m.healthStatus }}</td><td>{{ m.owner }}</td><td>{{ formatDate(m.plannedDate) }}</td><td class="actions"><button class="btn sm" :disabled="!canManageMilestone" @click="transitionMilestone(m, 'active')">active</button><button class="btn sm" :disabled="!canManageMilestone" @click="transitionMilestone(m, 'blocked')">blocked</button><button class="btn sm" :disabled="!canManageMilestone" @click="transitionMilestone(m, 'completed')">completed</button><button class="btn sm" @click="openMilestoneWork(m.id)">{{ label('workItems', locale) }}</button></td></tr></tbody></table>
       <p v-else class="empty">{{ label('noData', locale) }}</p>
     </section>

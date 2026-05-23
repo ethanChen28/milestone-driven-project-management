@@ -13,9 +13,10 @@ import (
 )
 
 type Server struct {
-	cfg   Config
-	store *service.Store
-	mux   *http.ServeMux
+	cfg        Config
+	store      *service.Store
+	userClient *service.UserDirectoryClient
+	mux        *http.ServeMux
 }
 
 func NewServer(cfg Config) *Server {
@@ -27,14 +28,18 @@ func NewServer(cfg Config) *Server {
 }
 
 func NewServerE(cfg Config) (*Server, error) {
+	if cfg.AppEnv == "production" && cfg.AuthMode == "dev-header" {
+		return nil, fmt.Errorf("AUTH_MODE=dev-header is not allowed when APP_ENV=production")
+	}
 	store, err := newStoreForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 	s := &Server{
-		cfg:   cfg,
-		store: store,
-		mux:   http.NewServeMux(),
+		cfg:        cfg,
+		store:      store,
+		userClient: service.NewUserDirectoryClient(cfg.UserServiceURL),
+		mux:        http.NewServeMux(),
 	}
 	s.routes()
 	return s, nil
@@ -75,6 +80,15 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/dashboard/roadmap", s.handleRoadmapOverview)
 	s.mux.HandleFunc("/api/v1/dashboard/project", s.handleProjectDetail)
 	s.mux.HandleFunc("/api/v1/project-space", s.handleProjectSpace)
+	s.mux.HandleFunc("/api/v1/users", s.handleUsers)
+	s.mux.HandleFunc("/api/v1/users/manage", s.handleUserManage)
+	s.mux.HandleFunc("/api/v1/users/update", s.handleUserUpdate)
+	s.mux.HandleFunc("/api/v1/users/disable", s.handleUserDisable)
+	s.mux.HandleFunc("/api/v1/users/enable", s.handleUserEnable)
+	s.mux.HandleFunc("/api/v1/users/role", s.handleRoleAssign)
+	s.mux.HandleFunc("/api/v1/auth/login", s.handleAuthLogin)
+	s.mux.HandleFunc("/api/v1/auth/jwks", s.handleAuthJWKS)
+	s.mux.HandleFunc("/api/v1/identity-migration/report", s.handleIdentityMigrationReport)
 	s.mux.HandleFunc("/api/v1/dashboard/milestone", s.handleMilestoneDetail)
 	s.mux.HandleFunc("/api/v1/review/weekly", s.handleWeeklyReview)
 	s.mux.HandleFunc("/api/v1/gitlab-configs", s.handleGitLabConfigs)
@@ -97,6 +111,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"defaultLocale":      s.cfg.DefaultLng,
 		"storageBackend":     s.store.StorageBackend(),
 		"durablePersistence": fmt.Sprintf("%t", s.store.Durable()),
+		"authMode":           s.cfg.AuthMode,
 	})
 }
 
@@ -114,7 +129,7 @@ func (s *Server) handleRoadmapPeriods(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateRoadmapPeriod(roleFromHeader(r), item)
+		created, err := s.store.CreateRoadmapPeriod(s.roleFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -123,7 +138,7 @@ func (s *Server) handleRoadmapPeriods(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if r.URL.Query().Get("archive") == "true" {
-			item, err := s.store.ArchiveRoadmapPeriod(roleFromHeader(r), id)
+			item, err := s.store.ArchiveRoadmapPeriod(s.roleFromRequest(r), id)
 			writeStoreResultWithStatus(w, http.StatusOK, item, err)
 			return
 		}
@@ -131,7 +146,7 @@ func (s *Server) handleRoadmapPeriods(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertRoadmapPeriod(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertRoadmapPeriod(s.roleFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -152,7 +167,7 @@ func (s *Server) handleRoadmapItems(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateRoadmapItem(roleFromHeader(r), item)
+		created, err := s.store.CreateRoadmapItem(s.roleFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -164,7 +179,7 @@ func (s *Server) handleRoadmapItems(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertRoadmapItem(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertRoadmapItem(s.roleFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -185,7 +200,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateProjectForActor(authFromRequest(r), item)
+		created, err := s.store.CreateProjectForActor(s.authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -197,7 +212,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertProjectForActor(authFromRequest(r), id, item)
+		updated, err := s.store.UpsertProjectForActor(s.authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -218,7 +233,7 @@ func (s *Server) handleMilestones(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateMilestoneForActor(authFromRequest(r), item)
+		created, err := s.store.CreateMilestoneForActor(s.authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -230,7 +245,7 @@ func (s *Server) handleMilestones(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertMilestoneForActor(authFromRequest(r), id, item)
+		updated, err := s.store.UpsertMilestoneForActor(s.authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -251,7 +266,7 @@ func (s *Server) handleWorkstreams(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateWorkstream(roleFromHeader(r), item)
+		created, err := s.store.CreateWorkstream(s.roleFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -263,7 +278,7 @@ func (s *Server) handleWorkstreams(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertWorkstream(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertWorkstream(s.roleFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -284,7 +299,7 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateLinkedWorkItemForActor(authFromRequest(r), item)
+		created, err := s.store.CreateLinkedWorkItemForActor(s.authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -296,7 +311,7 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertWorkItemForActor(authFromRequest(r), id, item)
+		updated, err := s.store.UpsertWorkItemForActor(s.authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -304,7 +319,7 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 			return
 		}
-		if err := s.store.DeleteWorkItemForActor(authFromRequest(r), id); err != nil {
+		if err := s.store.DeleteWorkItemForActor(s.authFromRequest(r), id); err != nil {
 			writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 			return
 		}
@@ -328,7 +343,7 @@ func (s *Server) handleWeeklyUpdates(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateWeeklyUpdateForActor(authFromRequest(r), item)
+		created, err := s.store.CreateWeeklyUpdateForActor(s.authFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -340,7 +355,7 @@ func (s *Server) handleWeeklyUpdates(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertWeeklyUpdateForActor(authFromRequest(r), id, item)
+		updated, err := s.store.UpsertWeeklyUpdateForActor(s.authFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	default:
 		http.NotFound(w, r)
@@ -375,6 +390,223 @@ func (s *Server) handleProjectSpace(w http.ResponseWriter, r *http.Request) {
 	writeStoreResultWithStatus(w, http.StatusOK, detail, err)
 }
 
+func (s *Server) handleUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	workspaceID := r.URL.Query().Get("workspaceId")
+	members, err := s.userClient.ListMembers(r.Context(), workspaceID)
+	writeStoreResultWithStatus(w, http.StatusOK, members, err)
+}
+
+func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if s.cfg.AuthMode == "dev-header" || s.cfg.AuthMode == "dev-token" {
+		role := r.Header.Get("X-Role")
+		if role != "admin" {
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin required"})
+			return false
+		}
+		return true
+	}
+	token := service.BearerToken(r.Header.Get("Authorization"))
+	claims, err := service.ValidateIdentityToken(s.cfg.TokenSecret, token, time.Now().UTC())
+	if err != nil || claims.Sub == "" {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin required"})
+		return false
+	}
+	hasAdmin := false
+	for _, role := range claims.Roles {
+		if role == "admin" {
+			hasAdmin = true
+			break
+		}
+	}
+	if !hasAdmin {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin required"})
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleUserManage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var req struct {
+		Username    string `json:"username"`
+		DisplayName string `json:"displayName"`
+		Email       string `json:"email"`
+		Password    string `json:"password"`
+		Role        string `json:"role"`
+		WorkspaceID string `json:"workspaceId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	user, err := s.userClient.CreateUser(r.Context(), req)
+	writeStoreResult(w, user, err)
+}
+
+func (s *Server) handleUserUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+		return
+	}
+	var req struct {
+		DisplayName string `json:"displayName"`
+		Email       string `json:"email"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	user, err := s.userClient.UpdateUser(r.Context(), id, req)
+	writeStoreResultWithStatus(w, http.StatusOK, user, err)
+}
+
+func (s *Server) handleUserDisable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+		return
+	}
+	if err := s.userClient.DisableUser(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "disabled"})
+}
+
+func (s *Server) handleUserEnable(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id := r.URL.Query().Get("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
+		return
+	}
+	if err := s.userClient.EnableUser(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "enabled"})
+}
+
+func (s *Server) handleRoleAssign(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		http.NotFound(w, r)
+		return
+	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var req struct {
+		UserID      string `json:"userId"`
+		Role        string `json:"role"`
+		WorkspaceID string `json:"workspaceId"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if req.UserID == "" || req.Role == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "userId and role are required"})
+		return
+	}
+	if err := s.userClient.AssignRole(r.Context(), req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "role assigned"})
+}
+
+func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.NotFound(w, r)
+		return
+	}
+	var body struct {
+		Username    string `json:"username"`
+		Password    string `json:"password"`
+		WorkspaceID string `json:"workspaceId"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if body.Password != "password" {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+		return
+	}
+	members, err := s.userClient.ListMembers(r.Context(), body.WorkspaceID)
+	if err != nil {
+		writeStoreResultWithStatus(w, http.StatusOK, nil, err)
+		return
+	}
+	for _, member := range members {
+		if member.ID != body.Username && member.Username != body.Username {
+			continue
+		}
+		role := "viewer"
+		if len(member.Roles) > 0 {
+			role = member.Roles[0]
+		}
+		now := time.Now().UTC()
+		claims := service.IdentityClaims{Sub: member.ID, WorkspaceID: "default", Roles: []string{role}, DisplayName: member.DisplayName, Email: member.Email, Provider: "builtin", Version: 1, Iat: now.Unix(), Exp: now.Add(time.Hour).Unix()}
+		token, err := service.IssueIdentityToken(s.cfg.TokenSecret, claims)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"accessToken": token, "tokenType": "Bearer", "expiresIn": int64(3600), "user": member})
+		return
+	}
+	writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
+}
+
+func (s *Server) handleAuthJWKS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"keys": []map[string]string{{"kid": "dev-hmac-1", "kty": "oct", "alg": "HS256", "use": "sig"}}})
+}
+
+func (s *Server) handleIdentityMigrationReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	members, err := s.userClient.ListMembers(r.Context(), r.URL.Query().Get("workspaceId"))
+	if err != nil {
+		writeStoreResultWithStatus(w, http.StatusOK, nil, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.IdentityMigrationReport(members))
+}
+
 func (s *Server) handleMilestoneDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if id == "" {
@@ -403,7 +635,7 @@ func (s *Server) handleGitLabConfigs(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateGitLabConfig(roleFromHeader(r), item)
+		created, err := s.store.CreateGitLabConfig(s.roleFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -415,7 +647,7 @@ func (s *Server) handleGitLabConfigs(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertGitLabConfig(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertGitLabConfig(s.roleFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -423,7 +655,7 @@ func (s *Server) handleGitLabConfigs(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 			return
 		}
-		if err := s.store.DeleteGitLabConfig(roleFromHeader(r), id); err != nil {
+		if err := s.store.DeleteGitLabConfig(s.roleFromRequest(r), id); err != nil {
 			writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 			return
 		}
@@ -447,7 +679,7 @@ func (s *Server) handleSyncRules(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		created, err := s.store.CreateSyncRule(roleFromHeader(r), item)
+		created, err := s.store.CreateSyncRule(s.roleFromRequest(r), item)
 		writeStoreResult(w, created, err)
 	case http.MethodPut:
 		id := r.URL.Query().Get("id")
@@ -459,7 +691,7 @@ func (s *Server) handleSyncRules(w http.ResponseWriter, r *http.Request) {
 		if !decodeJSON(w, r, &item) {
 			return
 		}
-		updated, err := s.store.UpsertSyncRule(roleFromHeader(r), id, item)
+		updated, err := s.store.UpsertSyncRule(s.roleFromRequest(r), id, item)
 		writeStoreResultWithStatus(w, http.StatusOK, updated, err)
 	case http.MethodDelete:
 		id := r.URL.Query().Get("id")
@@ -467,7 +699,7 @@ func (s *Server) handleSyncRules(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 			return
 		}
-		if err := s.store.DeleteSyncRule(roleFromHeader(r), id); err != nil {
+		if err := s.store.DeleteSyncRule(s.roleFromRequest(r), id); err != nil {
 			writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 			return
 		}
@@ -486,7 +718,7 @@ func (s *Server) handleGitLabLink(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &item) {
 		return
 	}
-	created, err := s.store.LinkGitLabIssueForActor(authFromRequest(r), item)
+	created, err := s.store.LinkGitLabIssueForActor(s.authFromRequest(r), item)
 	writeStoreResult(w, created, err)
 }
 
@@ -505,7 +737,7 @@ func (s *Server) handleGitLabUnlink(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 		return
 	}
-	if err := s.store.UnlinkGitLabIssueForActor(authFromRequest(r), body.ID); err != nil {
+	if err := s.store.UnlinkGitLabIssueForActor(s.authFromRequest(r), body.ID); err != nil {
 		writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 		return
 	}
@@ -527,7 +759,7 @@ func (s *Server) handleSyncJobs(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ruleId is required"})
 			return
 		}
-		job, err := s.store.RunSyncForRule(roleFromHeader(r), body.RuleID)
+		job, err := s.store.RunSyncForRule(s.roleFromRequest(r), body.RuleID)
 		if err != nil {
 			writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 			return
@@ -561,7 +793,7 @@ func (s *Server) handleResolveSyncFailure(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 		return
 	}
-	role := roleFromHeader(r)
+	role := s.roleFromRequest(r)
 	if !service.HasPermission(role, service.PermManageSyncRule) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
 		return
@@ -628,7 +860,7 @@ func (s *Server) handleDismissAlert(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "id is required"})
 		return
 	}
-	if err := s.store.DismissAlert(roleFromHeader(r), body.ID); err != nil {
+	if err := s.store.DismissAlert(s.roleFromRequest(r), body.ID); err != nil {
 		writeStoreResultWithStatus(w, http.StatusOK, nil, err)
 		return
 	}
@@ -666,17 +898,33 @@ func (s *Server) handleOpsStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.store.OperationalStatus())
 }
 
-func roleFromHeader(r *http.Request) domain.WorkspaceRole {
-	switch domain.WorkspaceRole(r.Header.Get("X-Role")) {
+func (s *Server) roleFromRequest(r *http.Request) domain.WorkspaceRole {
+	return s.authFromRequest(r).Role
+}
+
+func (s *Server) authFromRequest(r *http.Request) service.AuthContext {
+	if s.cfg.AuthMode == "token" {
+		token := service.BearerToken(r.Header.Get("Authorization"))
+		claims, err := service.ValidateIdentityToken(s.cfg.TokenSecret, token, time.Now().UTC())
+		if err != nil || claims.Sub == "" {
+			return service.ActorAuth(domain.RoleViewer, "")
+		}
+		role := domain.RoleViewer
+		if len(claims.Roles) > 0 {
+			role = normalizeRole(claims.Roles[0])
+		}
+		return service.ActorAuth(role, claims.Sub)
+	}
+	return service.ActorAuth(normalizeRole(r.Header.Get("X-Role")), strings.TrimSpace(r.Header.Get("X-User")))
+}
+
+func normalizeRole(value string) domain.WorkspaceRole {
+	switch domain.WorkspaceRole(value) {
 	case domain.RoleAdmin, domain.RolePortfolioManager, domain.RoleProjectOwner, domain.RoleContributor, domain.RoleViewer:
-		return domain.WorkspaceRole(r.Header.Get("X-Role"))
+		return domain.WorkspaceRole(value)
 	default:
 		return domain.RoleContributor
 	}
-}
-
-func authFromRequest(r *http.Request) service.AuthContext {
-	return service.ActorAuth(roleFromHeader(r), strings.TrimSpace(r.Header.Get("X-User")))
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, target interface{}) bool {

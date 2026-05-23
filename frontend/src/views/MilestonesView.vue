@@ -2,12 +2,14 @@
 import { computed, inject, onMounted, ref, type Ref } from "vue";
 import { useRouter } from "vue-router";
 import type { Locale } from "../i18n";
-import { dateInputToIso, label, apiFetch, can, type Milestone, type WorkspaceRole } from "../api";
+import PersonPicker from "../components/PersonPicker.vue";
+import { dateInputToIso, label, apiFetch, can, listUsers, type UserProfile, type Milestone, type WorkspaceRole } from "../api";
 
 const locale = inject<Ref<Locale>>("locale")!;
 const currentRole = inject<Ref<WorkspaceRole>>("currentRole")!;
 const router = useRouter();
 const milestones = ref<Milestone[]>([]);
+const directoryUsers = ref<UserProfile[]>([]);
 const showForm = ref(false);
 const canCreate = computed(() => can(currentRole.value, "manageMilestone"));
 const filters = ref({ projectId: "", owner: "", status: "", health: "", risk: "" });
@@ -20,7 +22,10 @@ function query() {
 }
 
 async function load() {
-  try { milestones.value = await apiFetch<Milestone[]>(`/milestones${query()}`); } catch { milestones.value = []; }
+  try {
+    milestones.value = await apiFetch<Milestone[]>(`/milestones${query()}`);
+    directoryUsers.value = await listUsers();
+  } catch { milestones.value = []; }
 }
 
 onMounted(load);
@@ -42,7 +47,7 @@ function go(id: string) { router.push({ name: "milestone-detail", params: { id }
     <div class="header">
       <h1>{{ label("milestones", locale) }}</h1>
       <button v-if="canCreate" class="btn primary" @click="showForm = !showForm">{{ label("createMilestone", locale) }}</button>
-      <span v-else class="empty">{{ label('noPermission', locale) }}</span>
+      <span v-else class="permission-hint">{{ label('noPermission', locale) }}<small>{{ label("needProjectOwner", locale) }}</small></span>
     </div>
     <div class="filters">
       <strong>{{ label('filters', locale) }}</strong>
@@ -56,15 +61,15 @@ function go(id: string) { router.push({ name: "milestone-detail", params: { id }
     <form v-if="showForm" class="form" @submit.prevent="create">
       <input v-model="form.projectId" placeholder="Project ID" required />
       <input v-model="form.title" :placeholder="label('title', locale)" required />
-      <input v-model="form.owner" :placeholder="label('owner', locale)" required />
+      <PersonPicker v-model="form.owner" :users="directoryUsers" :placeholder="label('owner', locale)" />
       <input v-model="form.completionCriteria" :placeholder="label('criteria', locale)" required />
       <select v-model="form.riskLevel"><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>
       <input v-model="form.plannedDate" type="date" />
       <div class="row"><button class="btn primary" type="submit">{{ label('save', locale) }}</button><button class="btn" type="button" @click="showForm = false">{{ label('cancel', locale) }}</button></div>
     </form>
     <table v-if="milestones.length">
-      <thead><tr><th>{{ label('title', locale) }}</th><th>{{ label('status', locale) }}</th><th>{{ label('health', locale) }}</th><th>{{ label('risk', locale) }}</th><th>{{ label('owner', locale) }}</th><th>{{ label('plannedDate', locale) }}</th></tr></thead>
-      <tbody><tr v-for="m in milestones" :key="m.id" class="clickable" tabindex="0" role="link" @click="go(m.id)" @keyup.enter="go(m.id)"><td>{{ m.title }}</td><td>{{ m.status }}</td><td>{{ m.healthStatus }}</td><td>{{ m.riskLevel || '-' }}</td><td>{{ m.owner }}</td><td>{{ m.plannedDate?.slice(0,10) || '-' }}</td></tr></tbody>
+      <thead><tr><th>{{ label('title', locale) }}</th><th>{{ label('status', locale) }}</th><th>{{ label('health', locale) }}</th><th>{{ label('risk', locale) }}</th><th>{{ label('owner', locale) }}</th><th>{{ label('plannedDate', locale) }}</th><th>{{ label('actions', locale) }}</th></tr></thead>
+      <tbody><tr v-for="m in milestones" :key="m.id" class="clickable" tabindex="0" role="link" @click="go(m.id)" @keyup.enter="go(m.id)"><td>{{ m.title }}</td><td>{{ m.status }}</td><td>{{ m.healthStatus }}</td><td>{{ m.riskLevel || '-' }}</td><td>{{ m.owner }}</td><td>{{ m.plannedDate?.slice(0,10) || '-' }}</td><td><button class="btn sm" @click.stop="go(m.id)">{{ label('edit', locale) }}</button></td></tr></tbody>
     </table>
     <p v-else class="empty">{{ label('noData', locale) }}</p>
   </div>
